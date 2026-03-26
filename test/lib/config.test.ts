@@ -10,7 +10,7 @@ describe("getConfig", () => {
   it("defaults to testnet", () => {
     const config = getConfig();
     expect(config.name).toBe("testnet");
-    expect(config.chainId).toBe(1776);
+    expect(config.chainId).toBe(1439);
     expect(config.identityRegistry).toMatch(/^0x/);
   });
 

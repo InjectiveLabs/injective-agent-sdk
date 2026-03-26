@@ -21,6 +21,9 @@ export function resolveKey(): ResolvedKey {
   return { privateKey, address: account.address, injAddress, account };
 }
 
+// On Injective, the 20-byte EVM address and the 20-byte Cosmos address are identical
+// (both derived from the same secp256k1 public key). Bech32-encoding the EVM address
+// directly produces the correct inj1... address without needing ripemd160(sha256(pubkey)).
 export function evmToInj(address: `0x${string}`): string {
   const bytes = Buffer.from(address.slice(2), "hex");
   const words = bech32.toWords(bytes);

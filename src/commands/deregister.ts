@@ -12,15 +12,17 @@ export async function deregister(opts: DeregisterOptions): Promise<DeregisterRes
   const { publicClient, walletClient, identityRegistry } = createClients(config, key.privateKey);
 
   if (!opts.force) {
+    // Verify agent exists (let this error propagate)
+    const tokenUri = await publicClient.readContract({
+      address: config.identityRegistry, abi: identityRegistry.abi,
+      functionName: "tokenURI", args: [opts.agentId],
+    }) as string;
+
     let agentName = `Agent ${opts.agentId}`;
     try {
-      const tokenUri = await publicClient.readContract({
-        address: config.identityRegistry, abi: identityRegistry.abi,
-        functionName: "tokenURI", args: [opts.agentId],
-      }) as string;
       const card = await fetchAgentCard(tokenUri, config.ipfsGateway);
       agentName = card.name;
-    } catch {}
+    } catch { /* Card fetch may fail (IPFS unavailable), use fallback name */ }
 
     console.log(`You are about to deregister agent "${agentName}" (ID: ${opts.agentId}).`);
     console.log("This will burn the identity NFT. This cannot be undone.");

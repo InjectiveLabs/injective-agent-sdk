@@ -5,9 +5,7 @@ import { deregister } from "../commands/deregister.js";
 import { status } from "../commands/status.js";
 import { AGENT_TYPES } from "../types/index.js";
 import type { AgentType } from "../types/index.js";
-
-const bigintReplacer = (_: string, v: unknown) =>
-  typeof v === "bigint" ? v.toString() : v;
+import { bigintReplacer } from "../lib/formatting.js";
 
 export const tools = [
   {

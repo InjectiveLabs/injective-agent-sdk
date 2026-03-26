@@ -2,18 +2,18 @@ import type { NetworkConfig } from "../types/index.js";
 
 const TESTNET: NetworkConfig = {
   name: "testnet",
-  chainId: 1776,
+  chainId: 1439,
   rpcUrl: "https://testnet.sentry.chain.json-rpc.injective.network",
-  identityRegistry: "0x257FFC254F57c71c620E4BC300Cf531F2fBed39D",
-  reputationRegistry: "0xd8d45AB304df118C72FDb840FAC9f4563806fdF1",
-  validationRegistry: "0xE56D35201D0a0E195FAde1A9CEEF369eD88D0A0C",
+  identityRegistry: "0x8004A2C41f13a9A5FbD9E8FaE4B5010ed079C95c",
+  reputationRegistry: "0x8004B10BD97503c52B8a3625D460F66e0f4C1561",
+  validationRegistry: "0x8004CFB61D2E34bdEE8de3B38BdCA400C95CB26f",
   ipfsGateway: "https://w3s.link/ipfs/",
 };
 
 const MAINNET: NetworkConfig = {
   name: "mainnet",
-  chainId: 1776,
-  rpcUrl: "https://sentry.chain.json-rpc.injective.network",
+  chainId: 1, // TBD: Injective mainnet EVM chain ID
+  rpcUrl: "https://evm.injective.network",
   identityRegistry: "0x0000000000000000000000000000000000000000",
   reputationRegistry: "0x0000000000000000000000000000000000000000",
   validationRegistry: "0x0000000000000000000000000000000000000000",

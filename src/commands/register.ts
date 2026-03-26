@@ -1,18 +1,21 @@
 import { type RegisterOptions, type RegisterResult, AGENT_TYPES } from "../types/index.js";
 import { getConfig } from "../lib/config.js";
 import { resolveKey } from "../lib/keys.js";
-import { createClients } from "../lib/contracts.js";
+import { createClients, encodeStringMetadata, identityTuple, walletLinkDeadline } from "../lib/contracts.js";
 import { generateAgentCard } from "../lib/agent-card.js";
 import { signWalletLink } from "../lib/wallet-signature.js";
 import { uploadAgentCard } from "../lib/ipfs.js";
 import { CliError, formatContractError } from "../lib/errors.js";
-import { encodeAbiParameters, parseAbiParameters } from "viem";
+import { isAddress, keccak256, toHex } from "viem";
+
+const REGISTERED_EVENT_TOPIC = keccak256(toHex("Registered(uint256,string,address)"));
 
 export async function register(opts: RegisterOptions): Promise<RegisterResult> {
   if (!opts.name || opts.name.length > 100) throw new CliError("Agent name must be 1-100 characters.");
   if (!AGENT_TYPES.includes(opts.type)) throw new CliError(`Invalid agent type "${opts.type}". Must be one of: ${AGENT_TYPES.join(", ")}.`);
   if (opts.description && opts.description.length > 500) throw new CliError("Description must be 500 characters or fewer.");
   if (!opts.builderCode) throw new CliError("Builder code is required.");
+  if (!isAddress(opts.wallet)) throw new CliError(`Invalid wallet address: ${opts.wallet}. Must be a checksummed 0x address.`);
 
   const config = getConfig();
   const key = resolveKey();
@@ -42,40 +45,31 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
   const txHashes: `0x${string}`[] = [];
 
   try {
-    // TX 1: register
+    // TX 1: register with metadata batch (saves 2 transaction base costs vs separate setMetadata calls)
+    const metadata = [
+      { metadataKey: "builderCode", metadataValue: encodeStringMetadata(opts.builderCode) },
+      { metadataKey: "agentType", metadataValue: encodeStringMetadata(opts.type) },
+    ];
     const registerHash = await walletClient.writeContract({
       address: config.identityRegistry, abi: identityRegistry.abi,
-      functionName: "register", args: [cardUri], nonce: nonce++,
+      functionName: "register", args: [cardUri, metadata], nonce: nonce++,
     });
     txHashes.push(registerHash);
     const receipt = await publicClient.waitForTransactionReceipt({ hash: registerHash });
 
-    // Extract agentId from AgentRegistered event (first indexed topic = agentId)
-    const agentRegisteredLog = receipt.logs.find((log) =>
-      log.address.toLowerCase() === config.identityRegistry.toLowerCase() && log.topics.length >= 2
+    // Extract agentId from canonical Registered(uint256 indexed agentId, string, address indexed)
+    const registeredLog = receipt.logs.find((log) =>
+      log.address.toLowerCase() === config.identityRegistry.toLowerCase() &&
+      log.topics[0] === REGISTERED_EVENT_TOPIC
     );
-    const agentId = agentRegisteredLog?.topics[1] ? BigInt(agentRegisteredLog.topics[1]) : 0n;
-    if (agentId === 0n) throw new CliError("Failed to extract agentId from register transaction.");
+    if (!registeredLog?.topics[1]) throw new CliError("Failed to extract agentId from register transaction.");
+    const agentId = BigInt(registeredLog.topics[1]);
 
-    // TX 2: setMetadata builderCode
-    const builderCodeBytes = encodeAbiParameters(parseAbiParameters("string"), [opts.builderCode]);
-    txHashes.push(await walletClient.writeContract({
-      address: config.identityRegistry, abi: identityRegistry.abi,
-      functionName: "setMetadata", args: [agentId, "builderCode", builderCodeBytes], nonce: nonce++,
-    }));
-
-    // TX 3: setMetadata agentType
-    const typeBytes = encodeAbiParameters(parseAbiParameters("string"), [opts.type]);
-    txHashes.push(await walletClient.writeContract({
-      address: config.identityRegistry, abi: identityRegistry.abi,
-      functionName: "setMetadata", args: [agentId, "agentType", typeBytes], nonce: nonce++,
-    }));
-
-    // TX 4: setAgentWallet (self-sign only)
+    // TX 2: setAgentWallet (self-sign only, needs agentId from TX 1)
     if (opts.wallet.toLowerCase() === key.address.toLowerCase()) {
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+      const deadline = walletLinkDeadline();
       const sig = await signWalletLink({
-        agentId, wallet: opts.wallet, deadline,
+        agentId, wallet: opts.wallet, ownerAddress: key.address, deadline,
         walletPrivateKey: key.privateKey, chainId: config.chainId,
         contractAddress: config.identityRegistry,
       });
@@ -87,12 +81,10 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
       console.warn(`Skipping wallet linkage: --wallet (${opts.wallet}) differs from signer (${key.address}).`);
     }
 
-    for (const hash of txHashes.slice(1)) {
-      await publicClient.waitForTransactionReceipt({ hash });
-    }
+    await Promise.all(txHashes.slice(1).map(hash => publicClient.waitForTransactionReceipt({ hash })));
 
-    const identityTuple = `eip155:1776:${config.identityRegistry}:${agentId}`;
-    return { agentId, identityTuple, cardUri, txHashes, scanUrl: `https://8004scan.io/agent/${identityTuple}` };
+    const tuple = identityTuple(config, agentId);
+    return { agentId, identityTuple: tuple, cardUri, txHashes, scanUrl: `https://8004scan.io/agent/${tuple}` };
   } catch (error) {
     if (error instanceof CliError) throw error;
     throw new CliError(formatContractError(error));

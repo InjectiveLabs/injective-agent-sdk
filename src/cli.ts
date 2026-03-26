@@ -11,10 +11,8 @@ import {
   formatUpdateResult,
   formatDeregisterResult,
   formatStatusResult,
+  bigintReplacer,
 } from "./lib/formatting.js";
-
-const bigintReplacer = (_: string, v: unknown) =>
-  typeof v === "bigint" ? v.toString() : v;
 
 const program = new Command();
 
@@ -139,7 +137,7 @@ program
   .action(async (agentIdStr, opts) => {
     try {
       if (opts.all) {
-        console.log("Listing all agents is not available yet.");
+        console.log("The --all flag requires the indexer API which is not yet available. Provide an AGENT_ID instead.");
         return;
       }
       if (!agentIdStr) {

@@ -1,5 +1,8 @@
 import type { RegisterResult, DeregisterResult, StatusResult, UpdateResult } from "../types/index.js";
 
+export const bigintReplacer = (_: string, v: unknown): unknown =>
+  typeof v === "bigint" ? v.toString() : v;
+
 export function formatRegisterResult(result: RegisterResult): string {
   if (result.txHashes.length === 0) return "";
   return [
