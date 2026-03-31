@@ -1,122 +1,294 @@
 # inj-agent
 
-CLI and MCP server for managing agent identities on the Injective chain.
+CLI and MCP server for managing agent identities on the Injective blockchain.
 
-## Overview
+Register, update, query, and burn on-chain agent identity NFTs via the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) IdentityRegistry contract. All operations are also available as MCP tools for integration with AI agents and orchestration frameworks.
 
-`inj-agent` provides four commands to manage on-chain agent identity NFTs via the IdentityRegistry contract:
+## Table of Contents
 
-| Command | Description |
-|---------|-------------|
-| `register` | Mint a new agent identity NFT with an agent card |
-| `update` | Update metadata for an existing agent |
-| `deregister` | Burn an agent identity NFT |
-| `status` | Query on-chain agent identity details |
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Commands](#commands)
+  - [register](#register)
+  - [update](#update)
+  - [deregister](#deregister)
+  - [status](#status)
+  - [mcp](#mcp-server)
+- [Agent Card Hosting](#agent-card-hosting)
+- [MCP Integration](#mcp-integration)
+- [Contract Addresses](#contract-addresses)
+- [Development](#development)
+- [Architecture](#architecture)
+- [Troubleshooting](#troubleshooting)
 
-It also exposes the same operations as an **MCP tool server** (`inj-agent mcp`) for integration with AI agents and orchestration frameworks.
-
-## Install
+## Quick Start
 
 ```bash
-npm install
-npm run build
+# Clone and build
+git clone <repo-url> && cd injective-agent-cli
+pnpm install
+pnpm run build
+
+# Link the CLI globally
+pnpm setup
+source ~/.zshrc          # or restart your terminal
+pnpm link --global
+
+# Verify
+inj-agent --version
 ```
+
+> **No global install?** Run commands with `pnpm exec inj-agent <command>` instead.
+
+```bash
+# Configure
+cp .env.example .env
+# Edit .env with your private key and (optionally) Pinata JWT
+
+# Register an agent
+inj-agent register \
+  --name "Portfolio Balancer" \
+  --type trading \
+  --builder-code acme-corp \
+  --wallet 0xAbCdEf0123456789AbCdEf0123456789AbCdEf01 \
+  --description "Autonomous portfolio rebalancing agent"
+```
+
+On success, the CLI prints your agent ID, transaction hashes, and a link to [8004scan](https://8004scan.com).
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set:
+Copy `.env.example` to `.env` and fill in your values:
 
-```
-INJ_PRIVATE_KEY=<hex private key>
-INJ_NETWORK=testnet          # testnet (default) or mainnet
-INJ_RPC_URL=                 # optional RPC override
-```
+| Variable | Required | Default | Description |
+|----------|:--------:|---------|-------------|
+| `INJ_PRIVATE_KEY` | Yes | -- | Hex-encoded private key (with or without `0x` prefix). Controls agent ownership and pays gas. |
+| `INJ_NETWORK` | No | `testnet` | `testnet` or `mainnet` |
+| `INJ_RPC_URL` | No | Network default | Override the default RPC endpoint |
+| `PINATA_JWT` | No | -- | Pinata API key for automatic IPFS upload. If unset, you must provide `--uri` when registering. |
 
-## Usage
+Your private key derives an EVM address that becomes the owner of any agents you register. On testnet, get INJ from the [Injective faucet](https://testnet.faucet.injective.network/).
 
-### Register
+## Commands
+
+### register
+
+Mint a new agent identity NFT.
 
 ```bash
 inj-agent register \
   --name "My Agent" \
   --type trading \
-  --builder-code my-builder \
+  --builder-code acme-corp \
   --wallet 0x... \
-  --description "A trading agent" \
-  --json
+  --description "Optional description"
 ```
 
-Options: `--uri` (skip IPFS upload), `--gas-price`, `--dry-run`, `--json`
+**Required flags:**
 
-### Update
+| Flag | Value | Notes |
+|------|-------|-------|
+| `--name <name>` | 1-100 characters | Wrap in quotes if it contains spaces |
+| `--type <type>` | `trading` `liquidation` `data` `portfolio` `other` | On-chain agent category |
+| `--builder-code <code>` | Any non-empty string | Identifies the builder or organization |
+| `--wallet <address>` | Checksummed `0x` EVM address | Wallet to link to this agent |
+
+**Optional flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--uri <uri>` | Pre-hosted agent card URL (skips IPFS upload) |
+| `--description <desc>` | Up to 500 characters |
+| `--gas-price <gwei>` | Override gas price |
+| `--dry-run` | Simulate without sending transactions |
+| `--json` | Output as JSON |
+
+**How registration works:**
+
+1. An agent card JSON is generated from your inputs
+2. The card is uploaded to IPFS via Pinata (unless `--uri` is provided)
+3. Two transactions are sent:
+   - `register()` — mints the identity NFT with metadata
+   - `setAgentWallet()` — links the wallet via an EIP-712 signature
+4. The CLI prints the agent ID, card URI, tx hashes, and 8004scan link
+
+**Address format:** The `--wallet` flag expects a checksummed `0x` EVM address, not `inj1...` bech32. Convert at the [Injective explorer](https://explorer.injective.network/) if needed.
+
+**Wallet linkage:** The wallet link transaction only executes if `--wallet` matches the address derived from your `INJ_PRIVATE_KEY`. If they differ, registration still succeeds but the wallet is not linked, and you'll see a warning.
+
+### update
+
+Update metadata for an existing agent.
 
 ```bash
-inj-agent update <agentId> --name "New Name" --type data
+inj-agent update <agentId> [flags]
 ```
 
-All fields are optional. Only provided fields are updated.
+| Flag | Description |
+|------|-------------|
+| `--name <name>` | New name (requires `--uri` to re-host the card) |
+| `--description <desc>` | New description (requires `--uri`) |
+| `--builder-code <code>` | New builder code |
+| `--type <type>` | New agent type |
+| `--wallet <address>` | New wallet (self-linking only) |
+| `--uri <uri>` | New agent card URI |
+| `--json` | Output as JSON |
 
-### Deregister
+Only the caller who owns the agent can update it.
+
+### deregister
+
+Burn an agent identity NFT permanently.
 
 ```bash
-inj-agent deregister <agentId> --force
+inj-agent deregister <agentId>
+inj-agent deregister <agentId> --force    # skip confirmation
 ```
 
-### Status
+Without `--force`, the CLI fetches the agent card, shows the agent name, and asks you to confirm by typing it.
+
+### status
+
+Query on-chain details for an agent.
 
 ```bash
+inj-agent status <agentId>
 inj-agent status <agentId> --json
 ```
 
+Displays the agent's name, type, builder code, owner, linked wallet, token URI, and identity tuple.
+
 ### MCP Server
+
+Start a stdio-based MCP server:
 
 ```bash
 inj-agent mcp
 ```
 
-Starts a stdio-based MCP server exposing `agent_register`, `agent_update`, `agent_deregister`, and `agent_status` tools.
+This exposes the same operations as MCP tools for use by AI agents and orchestration frameworks. See [MCP Integration](#mcp-integration) for details.
 
-## Agent Types
+## Agent Card Hosting
 
-`trading` | `liquidation` | `data` | `portfolio` | `other`
+The CLI generates agent card JSON automatically during registration. You choose how to host it:
 
-## Contract Addresses (Testnet)
+**Automatic (recommended):** Set `PINATA_JWT` in your `.env`. The CLI uploads the card to IPFS via [Pinata](https://www.pinata.cloud/) and uses the returned `ipfs://` URI.
+
+**Manual:** Host a JSON file matching the ERC-8004 schema at any public URL, then pass it via `--uri`:
+
+```json
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "Portfolio Balancer",
+  "description": "Autonomous portfolio rebalancing agent",
+  "services": [],
+  "metadata": {
+    "chain": "injective",
+    "chainId": "1776",
+    "agentType": "trading",
+    "builderCode": "acme-corp",
+    "operatorAddress": "0xYourEvmAddress"
+  }
+}
+```
+
+```bash
+inj-agent register --uri "https://example.com/card.json" ...
+```
+
+## MCP Integration
+
+The MCP server exposes four tools:
+
+| Tool | Description |
+|------|-------------|
+| `agent_register` | Register a new agent identity |
+| `agent_update` | Update agent metadata |
+| `agent_deregister` | Burn an agent (requires `confirm: true`) |
+| `agent_status` | Query agent details |
+
+All tools accept the same parameters as their CLI counterparts and return structured JSON. Configure your MCP client to launch the server:
+
+```json
+{
+  "mcpServers": {
+    "inj-agent": {
+      "command": "inj-agent",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+## Contract Addresses
+
+### Testnet (Chain ID: 1439)
 
 | Contract | Address |
 |----------|---------|
-| IdentityRegistry | `0x257FFC254F57c71c620E4BC300Cf531F2fBed39D` |
-| ReputationRegistry | `0xd8d45AB304df118C72FDb840FAC9f4563806fdF1` |
-| ValidationRegistry | `0xE56D35201D0a0E195FAde1A9CEEF369eD88D0A0C` |
+| IdentityRegistry | `0x19d1916ba1a2ac081b04893563a6ca0c92bc8c8e` |
+| ReputationRegistry | `0x019b24a73d493d86c61cc5dfea32e4865eecb922` |
+| ValidationRegistry | `0xbd84e152f41e28d92437b4b822b77e7e31bfd2a4` |
+
+Mainnet contracts are not yet deployed.
+
+### Agent Types
+
+`trading` | `liquidation` | `data` | `portfolio` | `other`
 
 ## Development
 
 ```bash
-npm run dev -- register --help   # run without building
-npm test                         # run tests (vitest)
-npm run test:watch               # watch mode
+pnpm dev register --help      # run without building (uses tsx)
+pnpm test                     # run tests
+pnpm test:watch               # watch mode
+pnpm run build                # compile TypeScript to dist/
 ```
 
 ## Architecture
 
 ```
 src/
-  cli.ts              # commander entry point
-  commands/            # register, update, deregister, status
+  cli.ts                # Commander entry point
+  commands/
+    register.ts         # Mint agent identity NFT
+    update.ts           # Update agent metadata
+    deregister.ts       # Burn agent NFT
+    status.ts           # Query agent state
   lib/
-    agent-card.ts      # agent card JSON generation
-    config.ts          # network configuration
-    contracts.ts       # viem contract interactions
-    errors.ts          # typed CLI errors
-    formatting.ts      # human-readable output
-    ipfs.ts            # IPFS upload
-    keys.ts            # private key / address derivation
-    wallet-signature.ts # EIP-712 wallet link signatures
+    agent-card.ts       # ERC-8004 agent card generation
+    config.ts           # Network configuration (testnet/mainnet)
+    contracts.ts        # viem contract interactions
+    errors.ts           # Typed CLI errors + revert parsing
+    formatting.ts       # Human-readable output helpers
+    ipfs.ts             # IPFS upload via Pinata
+    keys.ts             # Private key + address derivation
+    wallet-signature.ts # EIP-712 wallet linkage signatures
   mcp/
-    server.ts          # MCP stdio server
-    tools.ts           # MCP tool definitions
+    server.ts           # MCP stdio server
+    tools.ts            # MCP tool definitions (Zod schemas)
   types/
-    index.ts           # shared types and interfaces
+    index.ts            # Shared types and interfaces
+  abi/
+    IdentityRegistry.json
+    ReputationRegistry.json
+    ValidationRegistry.json
 ```
+
+Both the CLI and MCP server call the same command functions, keeping behavior consistent across interfaces.
+
+## Troubleshooting
+
+| Error | Fix |
+|-------|-----|
+| `command not found: inj-agent` | Run `pnpm setup && source ~/.zshrc && pnpm link --global` from the project directory |
+| `ERR_PNPM_NO_GLOBAL_BIN_DIR` | Run `pnpm setup`, then `source ~/.zshrc` before `pnpm link --global` |
+| `required option '--wallet' not specified` | Ensure all four required flags are present: `--name`, `--type`, `--builder-code`, `--wallet` |
+| `No Pinata API key found` | Set `PINATA_JWT` in `.env` or provide `--uri` manually |
+| `Invalid wallet address: inj1...` | Convert your bech32 address to `0x` format at the [Injective explorer](https://explorer.injective.network/) |
+| `Skipping wallet linkage` | Your `--wallet` doesn't match your `INJ_PRIVATE_KEY` address. The agent registered but the wallet was not linked. |
+| `No signing key provided` | `INJ_PRIVATE_KEY` is not set. Check your `.env` file. |
+| Shell shows `dquote>` or `quote>` | You have unclosed or smart quotes. Press `Ctrl+C` and re-type using straight quotes from your keyboard. |
 
 ## License
 

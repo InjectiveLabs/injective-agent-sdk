@@ -2,7 +2,6 @@ import { privateKeyToAccount } from "viem/accounts";
 import { bech32 } from "bech32";
 
 export interface ResolvedKey {
-  privateKey: `0x${string}`;
   address: `0x${string}`;
   injAddress: string;
   account: ReturnType<typeof privateKeyToAccount>;
@@ -18,7 +17,7 @@ export function resolveKey(): ResolvedKey {
     : (`0x${raw}` as `0x${string}`);
   const account = privateKeyToAccount(privateKey);
   const injAddress = evmToInj(account.address);
-  return { privateKey, address: account.address, injAddress, account };
+  return { address: account.address, injAddress, account };
 }
 
 // On Injective, the 20-byte EVM address and the 20-byte Cosmos address are identical

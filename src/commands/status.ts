@@ -3,11 +3,12 @@ import { getConfig } from "../lib/config.js";
 import { createClients, decodeStringMetadata, identityTuple } from "../lib/contracts.js";
 import { fetchAgentCard } from "../lib/agent-card.js";
 import { CliError, formatContractError } from "../lib/errors.js";
+import { privateKeyToAccount } from "viem/accounts";
 
 export async function status(opts: StatusOptions): Promise<StatusResult> {
   const config = getConfig();
-  // Read-only — use a dummy key
-  const { publicClient, identityRegistry } = createClients(config, "0x0000000000000000000000000000000000000000000000000000000000000001" as `0x${string}`);
+  const readonlyAccount = privateKeyToAccount("0x0000000000000000000000000000000000000000000000000000000000000001");
+  const { publicClient, identityRegistry } = createClients(config, readonlyAccount);
 
   try {
     const contractArgs = { address: config.identityRegistry, abi: identityRegistry.abi } as const;

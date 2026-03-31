@@ -5,78 +5,89 @@ import { deregister } from "../commands/deregister.js";
 import { status } from "../commands/status.js";
 import { AGENT_TYPES } from "../types/index.js";
 import type { AgentType } from "../types/index.js";
-import { bigintReplacer } from "../lib/formatting.js";
+
+const agentIdField = z.string().regex(/^\d+$/, "Agent ID must be a non-negative integer");
+const walletField = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Must be a checksummed 0x EVM address");
+
+const registerSchema = z.object({
+  name: z.string().min(1).max(100).describe("Agent name (1-100 characters)"),
+  type: z.enum(AGENT_TYPES as [AgentType, ...AgentType[]]).describe("Agent type"),
+  builderCode: z.string().min(1).describe("Builder code identifier"),
+  wallet: walletField.describe("Wallet address to link to this agent"),
+  uri: z.string().optional().describe("Agent card URI (if omitted, uploads to IPFS via Pinata)"),
+  description: z.string().max(500).optional().describe("Agent description (up to 500 characters)"),
+});
+
+const updateSchema = z.object({
+  agentId: agentIdField.describe("Agent ID as a decimal string"),
+  builderCode: z.string().min(1).optional().describe("New builder code identifier"),
+  type: z.enum(AGENT_TYPES as [AgentType, ...AgentType[]]).optional().describe("New agent type"),
+  wallet: walletField.optional().describe("New wallet address to link"),
+  uri: z.string().optional().describe("New agent card URI"),
+});
+
+const deregisterSchema = z.object({
+  agentId: agentIdField.describe("Agent ID as a decimal string"),
+  confirm: z.literal(true).describe("Must be explicitly set to true to confirm irreversible deregistration"),
+});
+
+const statusSchema = z.object({
+  agentId: agentIdField.describe("Agent ID as a decimal string"),
+});
 
 export const tools = [
   {
     name: "agent_register",
     description: "Register a new agent identity on the Injective chain",
-    inputSchema: {
-      name: z.string().describe("Agent name (1-100 characters)"),
-      type: z.enum(AGENT_TYPES as [AgentType, ...AgentType[]]).describe("Agent type"),
-      builderCode: z.string().describe("Builder code identifier"),
-      wallet: z.string().describe("Wallet address to link to this agent"),
-      uri: z.string().describe("Agent card URI"),
-      description: z.string().optional().describe("Agent description (up to 500 characters)"),
-    },
-    handler: async (args: Record<string, string>) => {
-      const result = await register({
-        name: args.name,
-        type: args.type as AgentType,
-        builderCode: args.builderCode,
-        wallet: args.wallet as `0x${string}`,
-        uri: args.uri,
-        description: args.description,
+    inputSchema: registerSchema.shape,
+    handler: async (args: Record<string, unknown>) => {
+      const a = args as z.infer<typeof registerSchema>;
+      return register({
+        name: a.name,
+        type: a.type,
+        builderCode: a.builderCode,
+        wallet: a.wallet as `0x${string}`,
+        uri: a.uri,
+        description: a.description,
       });
-      return JSON.parse(JSON.stringify(result, bigintReplacer));
     },
   },
   {
     name: "agent_update",
     description: "Update an existing agent identity on the Injective chain",
-    inputSchema: {
-      agentId: z.string().describe("Agent ID as a decimal string"),
-      builderCode: z.string().optional().describe("New builder code identifier"),
-      type: z.enum(AGENT_TYPES as [AgentType, ...AgentType[]]).optional().describe("New agent type"),
-      wallet: z.string().optional().describe("New wallet address to link"),
-      uri: z.string().optional().describe("New agent card URI"),
-    },
-    handler: async (args: Record<string, string>) => {
-      const result = await update({
-        agentId: BigInt(args.agentId),
-        builderCode: args.builderCode,
-        type: args.type as AgentType | undefined,
-        wallet: args.wallet as `0x${string}` | undefined,
-        uri: args.uri,
+    inputSchema: updateSchema.shape,
+    handler: async (args: Record<string, unknown>) => {
+      const a = args as z.infer<typeof updateSchema>;
+      return update({
+        agentId: BigInt(a.agentId),
+        builderCode: a.builderCode,
+        type: a.type,
+        wallet: a.wallet as `0x${string}` | undefined,
+        uri: a.uri,
       });
-      return JSON.parse(JSON.stringify(result, bigintReplacer));
     },
   },
   {
     name: "agent_deregister",
-    description: "Deregister (burn) an agent identity NFT on the Injective chain",
-    inputSchema: {
-      agentId: z.string().describe("Agent ID as a decimal string"),
-    },
-    handler: async (args: Record<string, string>) => {
-      const result = await deregister({
-        agentId: BigInt(args.agentId),
+    description: "Deregister (burn) an agent identity NFT on the Injective chain. This is IRREVERSIBLE.",
+    inputSchema: deregisterSchema.shape,
+    handler: async (args: Record<string, unknown>) => {
+      const a = args as z.infer<typeof deregisterSchema>;
+      return deregister({
+        agentId: BigInt(a.agentId),
         force: true,
       });
-      return JSON.parse(JSON.stringify(result, bigintReplacer));
     },
   },
   {
     name: "agent_status",
     description: "Get the status of an agent identity on the Injective chain",
-    inputSchema: {
-      agentId: z.string().describe("Agent ID as a decimal string"),
-    },
-    handler: async (args: Record<string, string>) => {
-      const result = await status({
-        agentId: BigInt(args.agentId),
+    inputSchema: statusSchema.shape,
+    handler: async (args: Record<string, unknown>) => {
+      const a = args as z.infer<typeof statusSchema>;
+      return status({
+        agentId: BigInt(a.agentId),
       });
-      return JSON.parse(JSON.stringify(result, bigintReplacer));
     },
   },
 ] as const;

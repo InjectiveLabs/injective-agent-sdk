@@ -28,9 +28,16 @@ export function generateAgentCard(opts: GenerateOptions): AgentCard {
 }
 
 export async function fetchAgentCard(uri: string, ipfsGateway: string): Promise<AgentCard> {
-  const url = uri.startsWith("ipfs://")
-    ? `${ipfsGateway}${uri.slice(7)}`
-    : uri;
+  let url: string;
+  if (uri.startsWith("ipfs://")) {
+    url = `${ipfsGateway}${uri.slice(7)}`;
+  } else {
+    const parsed = new URL(uri);
+    if (!["https:", "http:"].includes(parsed.protocol)) {
+      throw new Error(`Unsupported URI scheme: ${parsed.protocol}. Only https, http, and ipfs are allowed.`);
+    }
+    url = uri;
+  }
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch agent card from ${url}: ${res.status}`);
   return res.json() as Promise<AgentCard>;

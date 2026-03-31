@@ -19,7 +19,7 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
 
   const config = getConfig();
   const key = resolveKey();
-  const { publicClient, walletClient, identityRegistry, account } = createClients(config, key.privateKey);
+  const { publicClient, walletClient, identityRegistry, account } = createClients(config, key.account);
 
   const card = generateAgentCard({
     name: opts.name, type: opts.type, description: opts.description,
@@ -27,7 +27,14 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
   });
 
   let cardUri: string;
-  if (opts.uri) { cardUri = opts.uri; } else { cardUri = await uploadAgentCard(card); }
+  if (opts.uri) {
+    cardUri = opts.uri;
+  } else if (opts.dryRun) {
+    cardUri = "ipfs://dry-run-placeholder";
+  } else {
+    console.log("Uploading agent card to IPFS...");
+    cardUri = await uploadAgentCard(card);
+  }
 
   if (opts.dryRun) {
     const { result: predictedId } = await publicClient.simulateContract({
@@ -43,6 +50,7 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
 
   let nonce = await publicClient.getTransactionCount({ address: key.address, blockTag: "pending" });
   const txHashes: `0x${string}`[] = [];
+  const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
 
   try {
     // TX 1: register with metadata batch (saves 2 transaction base costs vs separate setMetadata calls)
@@ -52,7 +60,7 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
     ];
     const registerHash = await walletClient.writeContract({
       address: config.identityRegistry, abi: identityRegistry.abi,
-      functionName: "register", args: [cardUri, metadata], nonce: nonce++,
+      functionName: "register", args: [cardUri, metadata], nonce: nonce++, gasPrice,
     });
     txHashes.push(registerHash);
     const receipt = await publicClient.waitForTransactionReceipt({ hash: registerHash });
@@ -70,12 +78,12 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
       const deadline = walletLinkDeadline();
       const sig = await signWalletLink({
         agentId, wallet: opts.wallet, ownerAddress: key.address, deadline,
-        walletPrivateKey: key.privateKey, chainId: config.chainId,
+        account: key.account, chainId: config.chainId,
         contractAddress: config.identityRegistry,
       });
       txHashes.push(await walletClient.writeContract({
         address: config.identityRegistry, abi: identityRegistry.abi,
-        functionName: "setAgentWallet", args: [agentId, opts.wallet, deadline, sig], nonce: nonce++,
+        functionName: "setAgentWallet", args: [agentId, opts.wallet, deadline, sig], nonce: nonce++, gasPrice,
       }));
     } else {
       console.warn(`Skipping wallet linkage: --wallet (${opts.wallet}) differs from signer (${key.address}).`);

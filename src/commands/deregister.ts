@@ -9,7 +9,7 @@ import * as readline from "node:readline/promises";
 export async function deregister(opts: DeregisterOptions): Promise<DeregisterResult> {
   const config = getConfig();
   const key = resolveKey();
-  const { publicClient, walletClient, identityRegistry } = createClients(config, key.privateKey);
+  const { publicClient, walletClient, identityRegistry } = createClients(config, key.account);
 
   if (!opts.force) {
     // Verify agent exists (let this error propagate)

@@ -1,12 +1,12 @@
 import type { Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import type { LocalAccount } from "viem/accounts";
 
 interface SignWalletLinkParams {
   agentId: bigint;
   wallet: `0x${string}`;
   ownerAddress: `0x${string}`;
   deadline: bigint;
-  walletPrivateKey: `0x${string}`;
+  account: LocalAccount;
   chainId: number;
   contractAddress: `0x${string}`;
 }
@@ -17,9 +17,7 @@ interface SignWalletLinkParams {
  *   AgentWalletSet(uint256 agentId, address newWallet, address owner, uint256 deadline)
  */
 export async function signWalletLink(params: SignWalletLinkParams): Promise<Hex> {
-  const { agentId, wallet, ownerAddress, deadline, walletPrivateKey, chainId, contractAddress } = params;
-
-  const account = privateKeyToAccount(walletPrivateKey);
+  const { agentId, wallet, ownerAddress, deadline, account, chainId, contractAddress } = params;
 
   return account.signTypedData({
     domain: {

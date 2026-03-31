@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config";
 import { Command } from "commander";
 import { AGENT_TYPES } from "./types/index.js";
 import { register } from "./commands/register.js";
@@ -13,6 +14,13 @@ import {
   formatStatusResult,
   bigintReplacer,
 } from "./lib/formatting.js";
+
+function parseBigInt(value: string, label: string): bigint {
+  if (!/^\d+$/.test(value)) {
+    throw new CliError(`Invalid ${label}: "${value}". Must be a non-negative integer.`);
+  }
+  return BigInt(value);
+}
 
 const program = new Command();
 
@@ -43,7 +51,7 @@ program
         wallet: opts.wallet as `0x${string}`,
         uri: opts.uri,
         description: opts.description,
-        gasPrice: opts.gasPrice ? BigInt(opts.gasPrice) : undefined,
+        gasPrice: opts.gasPrice ? parseBigInt(opts.gasPrice, "--gas-price") : undefined,
         dryRun: opts.dryRun,
         json: opts.json,
       });
@@ -76,7 +84,7 @@ program
   .action(async (agentIdStr, opts) => {
     try {
       const result = await update({
-        agentId: BigInt(agentIdStr),
+        agentId: parseBigInt(agentIdStr, "agent ID"),
         name: opts.name,
         description: opts.description,
         builderCode: opts.builderCode,
@@ -109,7 +117,7 @@ program
   .action(async (agentIdStr, opts) => {
     try {
       const result = await deregister({
-        agentId: BigInt(agentIdStr),
+        agentId: parseBigInt(agentIdStr, "agent ID"),
         force: opts.force,
         json: opts.json,
       });
@@ -145,7 +153,7 @@ program
         process.exit(1);
       }
       const result = await status({
-        agentId: BigInt(agentIdStr),
+        agentId: parseBigInt(agentIdStr, "agent ID"),
         json: opts.json,
       });
       if (opts.json) {

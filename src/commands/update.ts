@@ -19,7 +19,7 @@ export async function update(opts: UpdateOptions): Promise<UpdateResult> {
 
   const config = getConfig();
   const key = resolveKey();
-  const { publicClient, walletClient, identityRegistry } = createClients(config, key.privateKey);
+  const { publicClient, walletClient, identityRegistry } = createClients(config, key.account);
 
   // Verify caller owns this agent before spending gas
   const owner = await publicClient.readContract({
@@ -63,7 +63,7 @@ export async function update(opts: UpdateOptions): Promise<UpdateResult> {
       const deadline = walletLinkDeadline();
       const sig = await signWalletLink({
         agentId: opts.agentId, wallet: opts.wallet, ownerAddress: key.address, deadline,
-        walletPrivateKey: key.privateKey, chainId: config.chainId,
+        account: key.account, chainId: config.chainId,
         contractAddress: config.identityRegistry,
       });
       txHashes.push(await walletClient.writeContract({

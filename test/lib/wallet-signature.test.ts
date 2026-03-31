@@ -20,7 +20,7 @@ describe("signWalletLink", () => {
       wallet: walletAccount.address,
       ownerAddress: ownerAccount.address,
       deadline,
-      walletPrivateKey: WALLET_KEY,
+      account: walletAccount,
       chainId,
       contractAddress,
     });

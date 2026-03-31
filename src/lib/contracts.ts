@@ -1,16 +1,15 @@
 import { createPublicClient, createWalletClient, http, getContract, encodeAbiParameters, decodeAbiParameters, parseAbiParameters } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import type { LocalAccount } from "viem/accounts";
 import type { NetworkConfig } from "../types/index.js";
 import IdentityRegistryABI from "../abi/IdentityRegistry.json" with { type: "json" };
 
-export function createClients(config: NetworkConfig, privateKey: `0x${string}`) {
+export function createClients(config: NetworkConfig, account: LocalAccount) {
   const chain = {
     id: config.chainId,
     name: config.name,
     nativeCurrency: { name: "INJ", symbol: "INJ", decimals: 18 },
     rpcUrls: { default: { http: [config.rpcUrl] } },
   };
-  const account = privateKeyToAccount(privateKey);
   const publicClient = createPublicClient({ chain, transport: http(config.rpcUrl) });
   const walletClient = createWalletClient({ chain, account, transport: http(config.rpcUrl) });
   const identityRegistry = getContract({
@@ -34,6 +33,6 @@ export function identityTuple(config: NetworkConfig, agentId: bigint): string {
   return `eip155:${config.chainId}:${config.identityRegistry}:${agentId}`;
 }
 
-export function walletLinkDeadline(offsetSeconds = 120): bigint {
+export function walletLinkDeadline(offsetSeconds = 600): bigint {
   return BigInt(Math.floor(Date.now() / 1000) + offsetSeconds);
 }
