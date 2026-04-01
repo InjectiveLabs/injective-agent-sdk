@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { uploadAgentCard } from "../../src/lib/ipfs.js";
+import { uploadAgentCard, resolveImageUri } from "../../src/lib/ipfs.js";
 import { CliError } from "../../src/lib/errors.js";
 import type { AgentCard } from "../../src/types/index.js";
 
@@ -7,6 +7,8 @@ const mockCard: AgentCard = {
   type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   name: "Test Agent",
   services: [],
+  image: "",
+  x402Support: false,
   metadata: {
     chain: "injective",
     chainId: "1776",
@@ -94,5 +96,36 @@ describe("uploadAgentCard", () => {
     const err = await uploadAgentCard(mockCard).catch((e) => e);
     expect(err).toBeInstanceOf(CliError);
     expect(err.message).toContain("unexpected response");
+  });
+});
+
+describe("resolveImageUri", () => {
+  afterEach(() => {
+    delete process.env.PINATA_JWT;
+    vi.restoreAllMocks();
+  });
+
+  it("returns https URL unchanged", async () => {
+    const uri = await resolveImageUri("https://example.com/avatar.png");
+    expect(uri).toBe("https://example.com/avatar.png");
+  });
+
+  it("returns ipfs URI unchanged", async () => {
+    const uri = await resolveImageUri("ipfs://QmTest123");
+    expect(uri).toBe("ipfs://QmTest123");
+  });
+
+  it("returns http URL unchanged", async () => {
+    const uri = await resolveImageUri("http://example.com/avatar.png");
+    expect(uri).toBe("http://example.com/avatar.png");
+  });
+
+  it("warns and returns empty string for local file without PINATA_JWT", async () => {
+    delete process.env.PINATA_JWT;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const uri = await resolveImageUri("./avatar.png");
+    expect(uri).toBe("");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("PINATA_JWT not configured"));
   });
 });

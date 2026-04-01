@@ -1,11 +1,22 @@
 export type AgentType = "trading" | "liquidation" | "data" | "portfolio" | "other";
 export const AGENT_TYPES: AgentType[] = ["trading", "liquidation", "data", "portfolio", "other"];
 
+export type ServiceType = "mcp" | "a2a" | "web" | "oasf";
+export const SERVICE_TYPES: ServiceType[] = ["mcp", "a2a", "web", "oasf"];
+
+export interface ServiceEntry {
+  type: ServiceType;
+  url: string;
+  description?: string;
+}
+
 export interface AgentCard {
   type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1";
   name: string;
   description?: string;
-  services: unknown[];
+  services: ServiceEntry[];
+  image: string;
+  x402Support: boolean;
   metadata: {
     chain: "injective";
     chainId: "1776";
@@ -25,6 +36,9 @@ export interface RegisterOptions {
   gasPrice?: bigint;
   dryRun?: boolean;
   json?: boolean;
+  services?: ServiceEntry[];
+  image?: string;
+  x402?: boolean;
 }
 
 export interface RegisterResult {
@@ -44,6 +58,10 @@ export interface UpdateOptions {
   wallet?: `0x${string}`;
   uri?: string;
   json?: boolean;
+  services?: ServiceEntry[];
+  removeServices?: ServiceType[];
+  image?: string;
+  x402?: boolean;       // true = enable, false = disable, undefined = no change
 }
 
 export interface UpdateResult {

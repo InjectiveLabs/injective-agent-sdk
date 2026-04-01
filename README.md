@@ -43,15 +43,19 @@ inj-agent --version
 ```bash
 # Configure
 cp .env.example .env
-# Edit .env with your private key and (optionally) Pinata JWT
+# Edit .env with your private key and Pinata JWT (see IPFS Setup below)
 
-# Register an agent
+# Register an agent with full metadata
 inj-agent register \
   --name "Portfolio Balancer" \
   --type trading \
   --builder-code acme-corp \
   --wallet 0xAbCdEf0123456789AbCdEf0123456789AbCdEf01 \
-  --description "Autonomous portfolio rebalancing agent"
+  --description "Autonomous portfolio rebalancing agent" \
+  --service '{"type":"mcp","url":"https://agent.acme.dev/mcp"}' \
+  --service '{"type":"a2a","url":"https://agent.acme.dev/a2a","description":"Agent-to-agent endpoint"}' \
+  --image ./avatar.png \
+  --x402
 ```
 
 On success, the CLI prints your agent ID, transaction hashes, and a link to [8004scan](https://8004scan.com).
@@ -97,8 +101,11 @@ inj-agent register \
 
 | Flag | Description |
 |------|-------------|
-| `--uri <uri>` | Pre-hosted agent card URL (skips IPFS upload) |
 | `--description <desc>` | Up to 500 characters |
+| `--service <json>` | Service endpoint as JSON (repeatable). See [Service Endpoints](#service-endpoints) below. |
+| `--image <pathOrUrl>` | Agent avatar. Local file path (uploaded to IPFS via Pinata) or URL (`https://`, `ipfs://`). |
+| `--x402` | Declare support for x402 payments |
+| `--uri <uri>` | Pre-hosted agent card URL (skips IPFS upload) |
 | `--gas-price <gwei>` | Override gas price |
 | `--dry-run` | Simulate without sending transactions |
 | `--json` | Output as JSON |
@@ -126,15 +133,20 @@ inj-agent update <agentId> [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--name <name>` | New name (requires `--uri` to re-host the card) |
-| `--description <desc>` | New description (requires `--uri`) |
+| `--name <name>` | New name |
+| `--description <desc>` | New description |
 | `--builder-code <code>` | New builder code |
 | `--type <type>` | New agent type |
 | `--wallet <address>` | New wallet (self-linking only) |
-| `--uri <uri>` | New agent card URI |
+| `--service <json>` | Add or replace a service endpoint (repeatable, merges by type) |
+| `--remove-service <type>` | Remove a service by protocol type (repeatable) |
+| `--image <pathOrUrl>` | New avatar (local file or URL) |
+| `--x402` | Enable x402 payment support |
+| `--no-x402` | Disable x402 payment support |
+| `--uri <uri>` | New agent card URI (skips fetch-merge-upload) |
 | `--json` | Output as JSON |
 
-Only the caller who owns the agent can update it.
+Only the caller who owns the agent can update it. The update command fetches the existing agent card from IPFS, merges your changes, re-uploads, and updates the on-chain token URI. If the existing card can't be fetched, the CLI prompts for confirmation before proceeding with a fresh card.
 
 ### deregister
 
@@ -168,6 +180,40 @@ inj-agent mcp
 
 This exposes the same operations as MCP tools for use by AI agents and orchestration frameworks. See [MCP Integration](#mcp-integration) for details.
 
+## Service Endpoints
+
+The `--service` flag takes a JSON object with `type`, `url`, and an optional `description`:
+
+```bash
+--service '{"type":"mcp","url":"https://agent.example.com/mcp"}'
+--service '{"type":"a2a","url":"https://agent.example.com/a2a","description":"Agent-to-agent endpoint"}'
+```
+
+Valid service types: `mcp`, `a2a`, `web`, `oasf`.
+
+The flag is repeatable. Pass it multiple times to register multiple endpoints. On `update`, services are merged by type: if you update with `--service '{"type":"mcp","url":"https://new-url.com/mcp"}'` and an MCP entry already exists, it gets replaced. Use `--remove-service mcp` to remove a service entirely.
+
+The CLI validates that each URL is well-formed and attempts an HTTP HEAD request to check reachability. Unreachable URLs produce a warning but do not block registration.
+
+## IPFS Setup (Pinata)
+
+The CLI uses [Pinata](https://www.pinata.cloud/) to upload agent cards and images to IPFS. Each builder uses their own Pinata account.
+
+1. Create a free account at [app.pinata.cloud](https://app.pinata.cloud)
+2. Go to **API Keys** and click **+ New Key**
+3. Name it (e.g. `inj-agent-testnet`)
+4. Under **V3 Resources**, set **Files** to **Write** (covers both `pinFileToIPFS` and `pinJSONToIPFS`)
+5. Click **Create** and copy the **JWT** (the long string starting with `eyJ...`)
+6. Add it to your `.env`:
+
+```
+PINATA_JWT=eyJhbGciOiJIUzI1NiIs...
+```
+
+The free tier provides 500MB storage and 100 uploads/month, which is sufficient for testnet. For production, builders can use any IPFS pinning service and pass the resulting URI via `--uri`.
+
+If `PINATA_JWT` is not set, the CLI still works for registration with `--uri`, and for local image paths it will warn and skip the image rather than blocking the registration.
+
 ## Agent Card Hosting
 
 The CLI generates agent card JSON automatically during registration. You choose how to host it:
@@ -181,7 +227,12 @@ The CLI generates agent card JSON automatically during registration. You choose 
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Portfolio Balancer",
   "description": "Autonomous portfolio rebalancing agent",
-  "services": [],
+  "services": [
+    { "type": "mcp", "url": "https://agent.acme.dev/mcp" },
+    { "type": "a2a", "url": "https://agent.acme.dev/a2a", "description": "Agent-to-agent endpoint" }
+  ],
+  "image": "ipfs://QmXyz.../avatar.png",
+  "x402Support": true,
   "metadata": {
     "chain": "injective",
     "chainId": "1776",

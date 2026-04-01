@@ -4,7 +4,8 @@ import { resolveKey } from "../lib/keys.js";
 import { createClients, encodeStringMetadata, identityTuple, walletLinkDeadline } from "../lib/contracts.js";
 import { generateAgentCard } from "../lib/agent-card.js";
 import { signWalletLink } from "../lib/wallet-signature.js";
-import { uploadAgentCard } from "../lib/ipfs.js";
+import { uploadAgentCard, resolveImageUri } from "../lib/ipfs.js";
+import { warnIfUnreachable } from "../lib/agent-card.js";
 import { CliError, formatContractError } from "../lib/errors.js";
 import { isAddress, keccak256, toHex } from "viem";
 
@@ -21,9 +22,18 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
   const key = resolveKey();
   const { publicClient, walletClient, identityRegistry, account } = createClients(config, key.account);
 
+  // Resolve image and check service URLs in parallel
+  const [resolvedImage] = await Promise.all([
+    opts.image ? resolveImageUri(opts.image) : Promise.resolve(undefined),
+    opts.services?.length
+      ? Promise.all(opts.services.map(s => warnIfUnreachable(s.url)))
+      : Promise.resolve(),
+  ]);
+
   const card = generateAgentCard({
     name: opts.name, type: opts.type, description: opts.description,
     builderCode: opts.builderCode, operatorAddress: key.address,
+    services: opts.services, image: resolvedImage, x402: opts.x402,
   });
 
   let cardUri: string;
@@ -60,7 +70,7 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
     ];
     const registerHash = await walletClient.writeContract({
       address: config.identityRegistry, abi: identityRegistry.abi,
-      functionName: "register", args: [cardUri, metadata], nonce: nonce++, gasPrice,
+      functionName: "register", args: [cardUri, metadata], nonce: nonce++, gasPrice, gas: 500_000n,
     });
     txHashes.push(registerHash);
     const receipt = await publicClient.waitForTransactionReceipt({ hash: registerHash });
@@ -83,7 +93,7 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
       });
       txHashes.push(await walletClient.writeContract({
         address: config.identityRegistry, abi: identityRegistry.abi,
-        functionName: "setAgentWallet", args: [agentId, opts.wallet, deadline, sig], nonce: nonce++, gasPrice,
+        functionName: "setAgentWallet", args: [agentId, opts.wallet, deadline, sig], nonce: nonce++, gasPrice, gas: 300_000n,
       }));
     } else {
       console.warn(`Skipping wallet linkage: --wallet (${opts.wallet}) differs from signer (${key.address}).`);
