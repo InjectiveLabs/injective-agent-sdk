@@ -9,7 +9,9 @@ import { resolveKey, signWalletLink, type ResolvedKey } from "./wallet.js";
 import { createClients, createReadOnlyClients, encodeStringMetadata, identityTuple, walletLinkDeadline } from "./contracts.js";
 import { generateAgentCard, mergeAgentCard, fetchAgentCard, checkServiceReachability } from "./card.js";
 import { AgentReadClient } from "./read-client.js";
-import { AgentSdkError, ContractError, StorageError, ValidationError, formatContractError } from "./errors.js";
+import { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
+import { simulateOnly } from "./simulate.js";
+import { AuditLogger } from "./audit.js";
 import { isAddress, keccak256, toHex } from "viem";
 
 const REGISTERED_EVENT_TOPIC = keccak256(toHex("Registered(uint256,string,address)"));
@@ -30,6 +32,7 @@ export class AgentClient {
   private storage: StorageProvider | undefined;
   private callbacks: AgentClientCallbacks;
   private clients: ReturnType<typeof createClients>;
+  private audit: AuditLogger;
   private _readClient: AgentReadClient | undefined;
 
   constructor(opts: AgentClientConfig) {
@@ -40,10 +43,19 @@ export class AgentClient {
     this.address = this.key.address;
     this.injAddress = this.key.injAddress;
     this.clients = createClients(this.config, this.key.account);
+    this.audit = new AuditLogger({
+      source: opts.auditSource,
+      logPath: opts.auditLogPath,
+      enabled: opts.audit !== false,
+    });
   }
 
   private get readClient(): AgentReadClient {
     return (this._readClient ??= new AgentReadClient({ network: this.config.name as "testnet" | "mainnet", rpcUrl: this.config.rpcUrl }));
+  }
+
+  private get auditBase() {
+    return { network: this.config.name, chainId: this.config.chainId, signerAddress: this.key.address, contract: this.config.identityRegistry } as const;
   }
 
   async register(opts: RegisterOptions): Promise<RegisterResult> {
@@ -55,17 +67,23 @@ export class AgentClient {
 
     const { publicClient, walletClient, identityRegistry, account } = this.clients;
 
-    // Resolve image and check service URLs in parallel
-    const [resolvedImage] = await Promise.all([
-      opts.image ? this.resolveImage(opts.image) : Promise.resolve(undefined),
-      opts.services?.length ? this.checkServices(opts.services.map(s => s.url)) : Promise.resolve(),
-    ]);
+    const [resolvedImage] = opts.dryRun
+      ? [undefined]
+      : await Promise.all([
+          opts.image ? this.resolveImage(opts.image) : Promise.resolve(undefined),
+          opts.services?.length ? this.checkServices(opts.services.map(s => s.url)) : Promise.resolve(),
+        ]);
 
     const card = generateAgentCard({
       name: opts.name, type: opts.type, description: opts.description,
       builderCode: opts.builderCode, operatorAddress: this.key.address,
       services: opts.services, image: resolvedImage, x402: opts.x402,
     });
+
+    const metadata = [
+      { metadataKey: "builderCode", metadataValue: encodeStringMetadata(opts.builderCode) },
+      { metadataKey: "agentType", metadataValue: encodeStringMetadata(opts.type) },
+    ];
 
     let cardUri: string;
     if (opts.uri) {
@@ -78,29 +96,45 @@ export class AgentClient {
       cardUri = await this.storage.uploadJSON(card, card.name);
     }
 
+    const baseParams = {
+      address: this.config.identityRegistry,
+      abi: identityRegistry.abi as unknown[],
+      account,
+    };
+
     if (opts.dryRun) {
-      const { result: predictedId } = await publicClient.simulateContract({
-        address: this.config.identityRegistry, abi: identityRegistry.abi,
-        functionName: "register", args: [cardUri], account,
-      });
-      return { agentId: predictedId as bigint, identityTuple: "", cardUri, txHashes: [], scanUrl: "" };
+      const sim = await simulateOnly(publicClient, {
+        ...baseParams, functionName: "register", args: [cardUri, metadata],
+        gasPrice: opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined, gas: 500_000n,
+      }, this.callbacks);
+      return { agentId: sim.result as bigint, identityTuple: "", cardUri, txHashes: [], scanUrl: "", gasEstimate: sim.gasEstimate };
     }
 
     let nonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
     const txHashes: `0x${string}`[] = [];
     const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const startMs = Date.now();
+    const registerAuditArgs = AuditLogger.sanitizeArgs("register", [cardUri, metadata]);
 
     try {
-      const metadata = [
-        { metadataKey: "builderCode", metadataValue: encodeStringMetadata(opts.builderCode) },
-        { metadataKey: "agentType", metadataValue: encodeStringMetadata(opts.type) },
-      ];
+      const registerSim = await simulateOnly(publicClient, {
+        ...baseParams, functionName: "register", args: [cardUri, metadata], gasPrice, gas: 500_000n,
+      }, this.callbacks);
+      this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "register", args: registerAuditArgs,
+        simulation: { passed: true, gasEstimate: String(registerSim.gasEstimate) }, durationMs: Date.now() - startMs });
+
+      this.callbacks.onProgress?.("Broadcasting register...");
       const registerHash = await walletClient.writeContract({
-        address: this.config.identityRegistry, abi: identityRegistry.abi,
-        functionName: "register", args: [cardUri, metadata], nonce: nonce++, gasPrice, gas: 500_000n,
+        ...baseParams, functionName: "register", args: [cardUri, metadata] as unknown[],
+        nonce: nonce++, gasPrice, gas: 500_000n,
       });
       txHashes.push(registerHash);
+      this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "register", args: registerAuditArgs,
+        simulation: { passed: true, gasEstimate: String(registerSim.gasEstimate) },
+        durationMs: Date.now() - startMs, result: { txHash: registerHash } });
+
       const receipt = await publicClient.waitForTransactionReceipt({ hash: registerHash });
+      this.audit.log({ event: "tx:confirm", ...this.auditBase, method: "register", args: registerAuditArgs, durationMs: Date.now() - startMs, result: { txHash: registerHash, gasUsed: String(receipt.gasUsed), blockNumber: String(receipt.blockNumber) } });
 
       const registeredLog = receipt.logs.find((log) =>
         log.address.toLowerCase() === this.config.identityRegistry.toLowerCase() &&
@@ -116,10 +150,23 @@ export class AgentClient {
           account: this.key.account, chainId: this.config.chainId,
           contractAddress: this.config.identityRegistry,
         });
-        txHashes.push(await walletClient.writeContract({
-          address: this.config.identityRegistry, abi: identityRegistry.abi,
-          functionName: "setAgentWallet", args: [agentId, opts.wallet, deadline, sig], nonce: nonce++, gasPrice, gas: 300_000n,
-        }));
+        const walletArgs = [agentId, opts.wallet, deadline, sig] as const;
+        const walletAuditArgs = AuditLogger.sanitizeArgs("setAgentWallet", walletArgs);
+        const walletSim = await simulateOnly(publicClient, {
+          ...baseParams, functionName: "setAgentWallet", args: walletArgs, gasPrice, gas: 300_000n,
+        }, this.callbacks);
+        this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "setAgentWallet", args: walletAuditArgs,
+          simulation: { passed: true, gasEstimate: String(walletSim.gasEstimate) }, durationMs: Date.now() - startMs });
+
+        this.callbacks.onProgress?.("Broadcasting setAgentWallet...");
+        const walletHash = await walletClient.writeContract({
+          ...baseParams, functionName: "setAgentWallet", args: walletArgs as unknown as unknown[],
+          nonce: nonce++, gasPrice, gas: 300_000n,
+        });
+        txHashes.push(walletHash);
+        this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "setAgentWallet", args: walletAuditArgs,
+          simulation: { passed: true, gasEstimate: String(walletSim.gasEstimate) },
+          durationMs: Date.now() - startMs, result: { txHash: walletHash } });
       } else {
         this.callbacks.onWarning?.(`Skipping wallet linkage: wallet (${opts.wallet}) differs from signer (${this.key.address}).`);
       }
@@ -129,8 +176,13 @@ export class AgentClient {
       const tuple = identityTuple(this.config, agentId);
       return { agentId, identityTuple: tuple, cardUri, txHashes, scanUrl: `https://8004scan.io/agent/${tuple}` };
     } catch (error) {
-      if (error instanceof AgentSdkError) throw error;
-      throw formatContractError(error);
+      if (error instanceof SimulationError || error instanceof AgentSdkError) {
+        this.audit.log({ event: "tx:fail", ...this.auditBase, method: "register", args: registerAuditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
+        throw error;
+      }
+      const formatted = formatContractError(error);
+      this.audit.log({ event: "tx:fail", ...this.auditBase, method: "register", args: registerAuditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
+      throw formatted;
     }
   }
 
@@ -164,114 +216,188 @@ export class AgentClient {
 
     let newCardUri: string | undefined;
     if (hasCardChanges && !opts.uri && tokenUri) {
-      let existingCard: AgentCard;
-      try {
-        existingCard = await fetchAgentCard(tokenUri, this.config.ipfsGateway);
-      } catch (firstError) {
-        this.callbacks.onWarning?.(`Failed to fetch agent card, retrying... (${firstError instanceof Error ? firstError.message : String(firstError)})`);
+      if (opts.dryRun) {
+        // Skip external calls (IPFS fetch, image upload, service checks) in dryRun
+        newCardUri = "ipfs://dry-run-placeholder";
+      } else {
+        let existingCard: AgentCard;
         try {
           existingCard = await fetchAgentCard(tokenUri, this.config.ipfsGateway);
-        } catch {
-          if (opts.allowFreshCard) {
-            existingCard = generateAgentCard({
-              name: `Agent ${agentId}`, type: "other",
-              builderCode: "", operatorAddress: "",
-            });
-          } else {
-            throw new AgentSdkError(
-              `Could not fetch existing agent card for Agent #${agentId}. ` +
-              "Set allowFreshCard: true to proceed with a fresh card, " +
-              "or provide all card fields explicitly."
-            );
+        } catch (firstError) {
+          this.callbacks.onWarning?.(`Failed to fetch agent card, retrying... (${firstError instanceof Error ? firstError.message : String(firstError)})`);
+          try {
+            existingCard = await fetchAgentCard(tokenUri, this.config.ipfsGateway);
+          } catch {
+            if (opts.allowFreshCard) {
+              existingCard = generateAgentCard({
+                name: `Agent ${agentId}`, type: "other",
+                builderCode: "", operatorAddress: "",
+              });
+            } else {
+              throw new AgentSdkError(
+                `Could not fetch existing agent card for Agent #${agentId}. ` +
+                "Set allowFreshCard: true to proceed with a fresh card, " +
+                "or provide all card fields explicitly."
+              );
+            }
           }
         }
+
+        const [resolvedImage] = await Promise.all([
+          opts.image ? this.resolveImage(opts.image) : Promise.resolve(undefined),
+          opts.services?.length ? this.checkServices(opts.services.map(s => s.url)) : Promise.resolve(),
+        ]);
+
+        const mergedCard = mergeAgentCard(existingCard, {
+          name: opts.name,
+          description: opts.description,
+          services: opts.services,
+          removeServices: opts.removeServices,
+          image: resolvedImage,
+          x402: opts.x402,
+        });
+
+        if (!this.storage) throw new StorageError("No storage provider configured. Provide a uri or configure a StorageProvider.");
+        this.callbacks.onProgress?.("Uploading updated agent card to IPFS...");
+        newCardUri = await this.storage.uploadJSON(mergedCard, mergedCard.name);
       }
-
-      const [resolvedImage] = await Promise.all([
-        opts.image ? this.resolveImage(opts.image) : Promise.resolve(undefined),
-        opts.services?.length ? this.checkServices(opts.services.map(s => s.url)) : Promise.resolve(),
-      ]);
-
-      const mergedCard = mergeAgentCard(existingCard, {
-        name: opts.name,
-        description: opts.description,
-        services: opts.services,
-        removeServices: opts.removeServices,
-        image: resolvedImage,
-        x402: opts.x402,
-      });
-
-      if (!this.storage) throw new StorageError("No storage provider configured. Provide a uri or configure a StorageProvider.");
-      this.callbacks.onProgress?.("Uploading updated agent card to IPFS...");
-      newCardUri = await this.storage.uploadJSON(mergedCard, mergedCard.name);
     }
 
-    let nonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
-    const txHashes: `0x${string}`[] = [];
-    const updatedFields: string[] = [];
     const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const startMs = Date.now();
+    const simBaseParams = { ...contractArgs, abi: identityRegistry.abi as unknown[], account: this.clients.account };
+
+    const plannedWrites: Array<{
+      functionName: string;
+      args: readonly unknown[];
+      field: string;
+      gas?: bigint;
+    }> = [];
+
+    if (opts.builderCode) {
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "builderCode", encodeStringMetadata(opts.builderCode)], field: "builderCode" });
+    }
+    if (opts.type) {
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "agentType", encodeStringMetadata(opts.type)], field: "agentType" });
+    }
+    const effectiveUri = opts.uri ?? newCardUri;
+    if (effectiveUri) {
+      plannedWrites.push({ functionName: "setAgentURI", args: [agentId, effectiveUri], field: "tokenURI" });
+    }
+    if (opts.wallet) {
+      if (opts.wallet.toLowerCase() !== this.key.address.toLowerCase()) {
+        throw new ValidationError(`Wallet linkage requires the wallet's private key. Currently only self-signing is supported (wallet must match signer ${this.key.address}).`);
+      }
+      const deadline = walletLinkDeadline();
+      const sig = await signWalletLink({
+        agentId, wallet: opts.wallet, ownerAddress: this.key.address, deadline,
+        account: this.key.account, chainId: this.config.chainId,
+        contractAddress: this.config.identityRegistry,
+      });
+      plannedWrites.push({ functionName: "setAgentWallet", args: [agentId, opts.wallet, deadline, sig], field: "wallet", gas: 300_000n });
+    }
+
+    const updateAuditArgs = { agentId: String(agentId), fields: plannedWrites.map(w => w.field) };
+
+    const writeAuditArgs = plannedWrites.map(w => AuditLogger.sanitizeArgs(w.functionName, w.args));
 
     try {
-      if (opts.builderCode) {
-        txHashes.push(await walletClient.writeContract({
-          ...contractArgs, functionName: "setMetadata",
-          args: [agentId, "builderCode", encodeStringMetadata(opts.builderCode)], nonce: nonce++, gasPrice,
-        }));
-        updatedFields.push("builderCode");
+      const simulations = await Promise.all(
+        plannedWrites.map(w => simulateOnly(publicClient, {
+          ...simBaseParams, functionName: w.functionName, args: w.args, gasPrice, gas: w.gas,
+        }, this.callbacks)),
+      );
+
+      for (let i = 0; i < simulations.length; i++) {
+        this.audit.log({ event: "tx:simulate", ...this.auditBase, method: simulations[i].method, args: writeAuditArgs[i],
+          simulation: { passed: true, gasEstimate: String(simulations[i].gasEstimate) }, durationMs: Date.now() - startMs });
       }
-      if (opts.type) {
-        txHashes.push(await walletClient.writeContract({
-          ...contractArgs, functionName: "setMetadata",
-          args: [agentId, "agentType", encodeStringMetadata(opts.type)], nonce: nonce++, gasPrice,
-        }));
-        updatedFields.push("agentType");
+
+      if (opts.dryRun) {
+        return { agentId, updatedFields: plannedWrites.map(w => w.field), txHashes: [], simulations: simulations.map(s => ({ method: s.method, gasEstimate: s.gasEstimate })) };
       }
-      const effectiveUri = opts.uri ?? newCardUri;
-      if (effectiveUri) {
-        txHashes.push(await walletClient.writeContract({
-          ...contractArgs, functionName: "setAgentURI",
-          args: [agentId, effectiveUri], nonce: nonce++, gasPrice,
-        }));
-        updatedFields.push("tokenURI");
-      }
-      if (opts.wallet) {
-        if (opts.wallet.toLowerCase() !== this.key.address.toLowerCase()) {
-          throw new ValidationError(`Wallet linkage requires the wallet's private key. Currently only self-signing is supported (wallet must match signer ${this.key.address}).`);
-        }
-        const deadline = walletLinkDeadline();
-        const sig = await signWalletLink({
-          agentId, wallet: opts.wallet, ownerAddress: this.key.address, deadline,
-          account: this.key.account, chainId: this.config.chainId,
-          contractAddress: this.config.identityRegistry,
+
+      let nonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
+      const txHashes: `0x${string}`[] = [];
+
+      for (let i = 0; i < plannedWrites.length; i++) {
+        const write = plannedWrites[i];
+        this.callbacks.onProgress?.(`Broadcasting ${write.functionName}...`);
+        const hash = await walletClient.writeContract({
+          ...contractArgs, abi: identityRegistry.abi as unknown[],
+          functionName: write.functionName, args: write.args as unknown[],
+          account: this.clients.account,
+          nonce: nonce++, gasPrice, gas: write.gas,
         });
-        txHashes.push(await walletClient.writeContract({
-          ...contractArgs, functionName: "setAgentWallet",
-          args: [agentId, opts.wallet, deadline, sig], nonce: nonce++, gasPrice,
-        }));
-        updatedFields.push("wallet");
+        txHashes.push(hash);
+        this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: write.functionName, args: writeAuditArgs[i],
+          simulation: { passed: true, gasEstimate: String(simulations[i].gasEstimate) },
+          durationMs: Date.now() - startMs, result: { txHash: hash } });
       }
-      await Promise.all(txHashes.map(hash => publicClient.waitForTransactionReceipt({ hash })));
-      return { agentId, updatedFields, txHashes };
+
+      const receipts = await Promise.all(txHashes.map(hash => publicClient.waitForTransactionReceipt({ hash })));
+      for (let i = 0; i < receipts.length; i++) {
+        this.audit.log({ event: "tx:confirm", ...this.auditBase, method: plannedWrites[i].functionName, args: writeAuditArgs[i], durationMs: Date.now() - startMs, result: { txHash: txHashes[i], gasUsed: String(receipts[i].gasUsed), blockNumber: String(receipts[i].blockNumber) } });
+      }
+      return { agentId, updatedFields: plannedWrites.map(w => w.field), txHashes };
     } catch (error) {
-      if (error instanceof AgentSdkError) throw error;
-      throw formatContractError(error);
+      if (error instanceof SimulationError || error instanceof AgentSdkError) {
+        this.audit.log({ event: "tx:fail", ...this.auditBase, method: "update", args: updateAuditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
+        throw error;
+      }
+      const formatted = formatContractError(error);
+      this.audit.log({ event: "tx:fail", ...this.auditBase, method: "update", args: updateAuditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
+      throw formatted;
     }
   }
 
   async deregister(agentId: bigint, opts?: DeregisterOptions): Promise<DeregisterResult> {
-    const { publicClient, walletClient, identityRegistry } = this.clients;
+    const { publicClient, walletClient, identityRegistry, account } = this.clients;
     const gasPrice = opts?.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const startMs = Date.now();
+    const deregAuditArgs = AuditLogger.sanitizeArgs("deregister", [agentId]);
+
+    const baseParams = {
+      address: this.config.identityRegistry,
+      abi: identityRegistry.abi as unknown[],
+      functionName: "deregister" as const,
+      args: [agentId] as readonly unknown[],
+      account,
+      gasPrice,
+    };
+
+    if (opts?.dryRun) {
+      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
+      return { agentId, txHash: `0x${"0".repeat(64)}` as `0x${string}`, gasEstimate: sim.gasEstimate };
+    }
 
     try {
+      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
+      this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "deregister", args: deregAuditArgs,
+        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) }, durationMs: Date.now() - startMs });
+
+      this.callbacks.onProgress?.("Broadcasting deregister...");
       const hash = await walletClient.writeContract({
-        address: this.config.identityRegistry, abi: identityRegistry.abi,
-        functionName: "deregister", args: [agentId], gasPrice,
+        address: baseParams.address, abi: baseParams.abi,
+        functionName: "deregister", args: [agentId] as unknown[],
+        account, gasPrice,
       });
-      await publicClient.waitForTransactionReceipt({ hash });
+      this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "deregister", args: deregAuditArgs,
+        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) },
+        durationMs: Date.now() - startMs, result: { txHash: hash } });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      this.audit.log({ event: "tx:confirm", ...this.auditBase, method: "deregister", args: deregAuditArgs, durationMs: Date.now() - startMs, result: { txHash: hash, gasUsed: String(receipt.gasUsed), blockNumber: String(receipt.blockNumber) } });
+
       return { agentId, txHash: hash };
     } catch (error) {
-      if (error instanceof AgentSdkError) throw error;
-      throw formatContractError(error);
+      if (error instanceof SimulationError || error instanceof AgentSdkError) {
+        this.audit.log({ event: "tx:fail", ...this.auditBase, method: "deregister", args: deregAuditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
+        throw error;
+      }
+      const formatted = formatContractError(error);
+      this.audit.log({ event: "tx:fail", ...this.auditBase, method: "deregister", args: deregAuditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
+      throw formatted;
     }
   }
 

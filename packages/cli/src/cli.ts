@@ -4,6 +4,7 @@ import { Command } from "commander";
 import {
   AGENT_TYPES, SERVICE_TYPES,
   AgentSdkError, bigintReplacer, assertPublicUrl, ValidationError,
+  DEFAULT_AUDIT_LOG_PATH,
 } from "@injective/agent-sdk";
 import type { ServiceEntry, ServiceType } from "@injective/agent-sdk";
 import {
@@ -14,7 +15,7 @@ import { createClient as createClientBase, createReadClient } from "./env.js";
 import * as readline from "node:readline/promises";
 
 const cliCallbacks = { onProgress: (msg: string) => console.log(msg), onWarning: (msg: string) => console.warn(msg) };
-function createClient() { return createClientBase(cliCallbacks); }
+function createClient() { return createClientBase(cliCallbacks, "cli"); }
 
 function parseBigInt(value: string, label: string): bigint {
   if (!/^\d+$/.test(value)) {
@@ -118,6 +119,7 @@ program
   .option("--type <type>", `New agent type (${AGENT_TYPES.join(", ")})`)
   .option("--wallet <address>", "New wallet address to link")
   .option("--uri <uri>", "New agent card URI")
+  .option("--dry-run", "Simulate without broadcasting")
   .option("--json", "Output result as JSON")
   .option("--service <json>", "Service endpoint as JSON (repeatable)", parseService, [])
   .option("--remove-service <type>", "Remove a service by type (repeatable)", parseRemoveService, [])
@@ -125,16 +127,17 @@ program
   .option("--x402", "Enable x402 payment support")
   .option("--no-x402", "Disable x402 payment support")
   .action(async (agentIdStr, opts) => {
+    const client = createClient();
+    const agentId = parseBigInt(agentIdStr, "agent ID");
+    const updateOpts = {
+      name: opts.name, description: opts.description, builderCode: opts.builderCode,
+      type: opts.type, wallet: opts.wallet as `0x${string}` | undefined, uri: opts.uri,
+      dryRun: opts.dryRun,
+      services: opts.service.length > 0 ? opts.service : undefined,
+      removeServices: opts.removeService.length > 0 ? opts.removeService : undefined,
+      image: opts.image, x402: opts.x402,
+    };
     try {
-      const client = createClient();
-      const agentId = parseBigInt(agentIdStr, "agent ID");
-      const updateOpts = {
-        name: opts.name, description: opts.description, builderCode: opts.builderCode,
-        type: opts.type, wallet: opts.wallet as `0x${string}` | undefined, uri: opts.uri,
-        services: opts.service.length > 0 ? opts.service : undefined,
-        removeServices: opts.removeService.length > 0 ? opts.removeService : undefined,
-        image: opts.image, x402: opts.x402,
-      };
       const result = await client.update(agentId, updateOpts);
       if (opts.json) {
         console.log(JSON.stringify(result, bigintReplacer, 2));
@@ -148,15 +151,7 @@ program
         rl.close();
         if (answer.toLowerCase() === "y") {
           try {
-            const client = createClient();
-            const result = await client.update(parseBigInt(agentIdStr, "agent ID"), {
-              name: opts.name, description: opts.description, builderCode: opts.builderCode,
-              type: opts.type, wallet: opts.wallet as `0x${string}` | undefined, uri: opts.uri,
-              services: opts.service.length > 0 ? opts.service : undefined,
-              removeServices: opts.removeService.length > 0 ? opts.removeService : undefined,
-              image: opts.image, x402: opts.x402,
-              allowFreshCard: true,
-            });
+            const result = await client.update(agentId, { ...updateOpts, allowFreshCard: true });
             if (opts.json) { console.log(JSON.stringify(result, bigintReplacer, 2)); }
             else { console.log(formatUpdateResult(result)); }
             return;
@@ -172,6 +167,7 @@ program
   .command("deregister <agentId>")
   .description("Deregister (burn) an agent identity NFT")
   .option("--force", "Skip confirmation prompt")
+  .option("--dry-run", "Simulate without broadcasting")
   .option("--json", "Output result as JSON")
   .action(async (agentIdStr, opts) => {
     try {
@@ -192,7 +188,7 @@ program
       }
 
       const client = createClient();
-      const result = await client.deregister(agentId);
+      const result = await client.deregister(agentId, { dryRun: opts.dryRun });
       if (opts.json) {
         console.log(JSON.stringify(result, bigintReplacer, 2));
       } else {
@@ -237,6 +233,50 @@ program
   .action(async () => {
     const { startMcpServer } = await import("./mcp/server.js");
     await startMcpServer();
+  });
+
+// audit
+program
+  .command("audit")
+  .description("View recent audit log entries")
+  .option("--tail <n>", "Number of entries to show", "20")
+  .option("--json", "Output raw JSONL")
+  .action(async (opts) => {
+    const { readFileSync } = await import("node:fs");
+    const logPath = DEFAULT_AUDIT_LOG_PATH;
+
+    let content: string;
+    try {
+      content = readFileSync(logPath, "utf-8");
+    } catch (e: any) {
+      if (e?.code === "ENOENT") {
+        console.log("No audit log found. Transactions will be logged after the first signing operation.");
+        return;
+      }
+      throw e;
+    }
+    const lines = content.trim().split("\n").filter(Boolean);
+    const n = parseInt(opts.tail, 10) || 20;
+    const tail = lines.slice(-n);
+
+    if (opts.json) {
+      for (const line of tail) console.log(line);
+      return;
+    }
+
+    for (const line of tail) {
+      try {
+        const entry = JSON.parse(line);
+        const time = entry.timestamp?.slice(11, 19) ?? "??:??:??";
+        const event = (entry.event ?? "").padEnd(12);
+        const method = (entry.method ?? "").padEnd(16);
+        const hash = entry.result?.txHash ? entry.result.txHash.slice(0, 10) + "..." : "";
+        const err = entry.error ? ` ERR: ${entry.error.message}` : "";
+        console.log(`${time}  ${event}  ${method}  ${hash}${err}`);
+      } catch {
+        console.log(line);
+      }
+    }
   });
 
 program.parse(process.argv);

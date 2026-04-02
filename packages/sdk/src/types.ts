@@ -46,6 +46,7 @@ export interface RegisterResult {
   cardUri: string;
   txHashes: `0x${string}`[];
   scanUrl: string;
+  gasEstimate?: bigint;
 }
 
 export interface UpdateOptions {
@@ -56,6 +57,7 @@ export interface UpdateOptions {
   wallet?: `0x${string}`;
   uri?: string;
   gasPrice?: bigint;
+  dryRun?: boolean;
   services?: ServiceEntry[];
   removeServices?: ServiceType[];
   image?: string;
@@ -65,17 +67,20 @@ export interface UpdateOptions {
 
 export interface DeregisterOptions {
   gasPrice?: bigint;
+  dryRun?: boolean;
 }
 
 export interface UpdateResult {
   agentId: bigint;
   updatedFields: string[];
   txHashes: `0x${string}`[];
+  simulations?: Array<{ method: string; gasEstimate: bigint }>;
 }
 
 export interface DeregisterResult {
   agentId: bigint;
   txHash: `0x${string}`;
+  gasEstimate?: bigint;
 }
 
 export interface StatusResult {
@@ -106,6 +111,9 @@ export interface AgentClientConfig {
   rpcUrl?: string;
   storage?: StorageProvider;
   callbacks?: AgentClientCallbacks;
+  audit?: boolean;
+  auditLogPath?: string;
+  auditSource?: "cli" | "mcp" | "sdk";
 }
 
 export interface ReadClientConfig {

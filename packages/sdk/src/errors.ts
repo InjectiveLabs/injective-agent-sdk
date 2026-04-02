@@ -31,6 +31,23 @@ export class StorageError extends AgentSdkError {
   }
 }
 
+export class SimulationError extends AgentSdkError {
+  readonly revertReason: string | undefined;
+  readonly gasEstimate: bigint | undefined;
+
+  constructor(message: string, revertReason?: string, gasEstimate?: bigint) {
+    super(message);
+    this.name = "SimulationError";
+    this.revertReason = revertReason;
+    this.gasEstimate = gasEstimate;
+  }
+}
+
+export function extractRevertName(error: BaseError): string | undefined {
+  const revert = error.walk((e) => e instanceof ContractFunctionRevertedError);
+  return revert instanceof ContractFunctionRevertedError ? revert.data?.errorName : undefined;
+}
+
 export function formatContractError(error: unknown): ContractError {
   if (error instanceof BaseError) {
     const revert = error.walk((e) => e instanceof ContractFunctionRevertedError);

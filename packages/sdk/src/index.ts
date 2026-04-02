@@ -41,8 +41,16 @@ export { resolveNetworkConfig, TESTNET, MAINNET } from "./config.js";
 // Validation
 export { assertPublicUrl } from "./validation.js";
 
+// Simulation
+export { simulateAndWrite, simulateOnly } from "./simulate.js";
+export type { SimulationResult } from "./simulate.js";
+
+// Audit logging
+export { AuditLogger, DEFAULT_AUDIT_LOG_PATH } from "./audit.js";
+export type { AuditEntry, AuditEvent, AuditLoggerConfig } from "./audit.js";
+
 // Errors
-export { AgentSdkError, ContractError, StorageError, ValidationError, formatContractError } from "./errors.js";
+export { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
 
 // Formatting
 export { bigintReplacer } from "./formatting.js";

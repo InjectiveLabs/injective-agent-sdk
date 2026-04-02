@@ -10,7 +10,7 @@ let _client: AgentClient | undefined;
 let _readClient: AgentReadClient | undefined;
 
 function getClient(): AgentClient {
-  return (_client ??= createClient());
+  return (_client ??= createClient(undefined, "mcp"));
 }
 
 function getReadClient(): AgentReadClient {
