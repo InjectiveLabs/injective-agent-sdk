@@ -9,6 +9,7 @@ export const TESTNET: NetworkConfig = {
   reputationRegistry: "0x019b24a73d493d86c61cc5dfea32e4865eecb922",
   validationRegistry: "0xbd84e152f41e28d92437b4b822b77e7e31bfd2a4",
   ipfsGateway: "https://w3s.link/ipfs/",
+  deployBlock: 119354199n,
 };
 
 export const MAINNET: NetworkConfig = {
@@ -19,6 +20,7 @@ export const MAINNET: NetworkConfig = {
   reputationRegistry: "0x0000000000000000000000000000000000000000",
   validationRegistry: "0x0000000000000000000000000000000000000000",
   ipfsGateway: "https://w3s.link/ipfs/",
+  deployBlock: 0n,
 };
 
 export function resolveNetworkConfig(opts?: { network?: string; rpcUrl?: string }): NetworkConfig {

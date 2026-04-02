@@ -33,7 +33,7 @@ export { evmToInj, signWalletLink, resolveKey } from "./wallet.js";
 export type { ResolvedKey } from "./wallet.js";
 
 // Contract utilities
-export { identityTuple, encodeStringMetadata, decodeStringMetadata, walletLinkDeadline, IdentityRegistryABI } from "./contracts.js";
+export { identityTuple, encodeStringMetadata, decodeStringMetadata, walletLinkDeadline, IdentityRegistryABI, ReputationRegistryABI } from "./contracts.js";
 
 // Config
 export { resolveNetworkConfig, TESTNET, MAINNET } from "./config.js";
@@ -56,6 +56,8 @@ export type {
   NetworkConfig, AgentClientConfig, ReadClientConfig,
   AgentClientCallbacks, StorageProvider,
   GenerateCardOptions, CardUpdates, SignWalletLinkParams,
+  DiscoverOptions, ListAgentsOptions, ListAgentsResult,
+  ReputationResult, FeedbackEntry, EnrichedAgentResult,
 } from "./types.js";
 
 // Constants

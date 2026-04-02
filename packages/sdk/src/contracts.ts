@@ -2,8 +2,9 @@ import { createPublicClient, createWalletClient, http, getContract, encodeAbiPar
 import type { LocalAccount } from "viem/accounts";
 import type { NetworkConfig } from "./types.js";
 import IdentityRegistryABI from "./abi/IdentityRegistry.json" with { type: "json" };
+import ReputationRegistryABI from "./abi/ReputationRegistry.json" with { type: "json" };
 
-export { IdentityRegistryABI };
+export { IdentityRegistryABI, ReputationRegistryABI };
 
 function makeChain(config: NetworkConfig) {
   return {
@@ -34,7 +35,12 @@ export function createReadOnlyClients(config: NetworkConfig) {
     abi: IdentityRegistryABI,
     client: { public: publicClient },
   });
-  return { publicClient, identityRegistry };
+  const reputationRegistry = getContract({
+    address: config.reputationRegistry,
+    abi: ReputationRegistryABI,
+    client: { public: publicClient },
+  });
+  return { publicClient, identityRegistry, reputationRegistry };
 }
 
 export function encodeStringMetadata(value: string): `0x${string}` {

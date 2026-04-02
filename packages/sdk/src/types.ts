@@ -97,6 +97,7 @@ export interface NetworkConfig {
   reputationRegistry: `0x${string}`;
   validationRegistry: `0x${string}`;
   ipfsGateway: string;
+  deployBlock: bigint;
 }
 
 export interface AgentClientConfig {
@@ -140,6 +141,46 @@ export interface CardUpdates {
   removeServices?: ServiceType[];
   image?: string;
   x402?: boolean;
+}
+
+// Discovery & listing
+export interface DiscoverOptions {
+  fromBlock?: bigint;
+  chunkSize?: number;
+  cacheTtl?: number;
+}
+
+export interface ListAgentsOptions {
+  offset?: number;
+  limit?: number;
+  enrich?: boolean;
+}
+
+export interface ListAgentsResult {
+  agents: StatusResult[];
+  total: number;
+  offset: number;
+  limit: number;
+  failed: bigint[];
+}
+
+// Reputation
+export interface ReputationResult {
+  score: number;
+  count: number;
+}
+
+export interface FeedbackEntry {
+  client: `0x${string}`;
+  value: bigint;
+  decimals: number;
+  tags: [string, string];
+  revoked: boolean;
+}
+
+export interface EnrichedAgentResult extends StatusResult {
+  reputation: ReputationResult;
+  card: AgentCard | null;
 }
 
 export interface SignWalletLinkParams {

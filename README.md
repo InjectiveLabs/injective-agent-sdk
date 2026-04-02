@@ -96,7 +96,7 @@ The MCP server exposes `agent_register`, `agent_update`, `agent_deregister`, and
 
 - [SDK Reference](#sdk-reference)
   - [AgentClient](#agentclient)
-  - [AgentReadClient](#agentreadclient)
+  - [AgentReadClient](#agentreadclient) (discovery, listing, reputation, events)
   - [Storage Providers](#storage-providers)
   - [Card Utilities](#card-utilities)
   - [Wallet Utilities](#wallet-utilities)
@@ -199,8 +199,66 @@ For read-only operations. No private key required.
 import { AgentReadClient } from '@injective/agent-sdk'
 
 const reader = new AgentReadClient({ network: 'testnet' })
+```
+
+#### Health Check
+
+```typescript
+const isUp = await reader.ping()             // true | false (never throws)
+const details = await reader.pingDetailed()   // { reachable, blockNumber?, latencyMs? }
+```
+
+#### Discovery & Listing
+
+```typescript
+// Discover all live agent IDs (scans Transfer events, cached for 60s)
+const agentIds = await reader.discoverAgentIds()
+
+// Paginated listing
+const page = await reader.listAgents({ offset: 0, limit: 20 })
+// Returns: { agents: StatusResult[], total, offset, limit, failed: bigint[] }
+
+// Enriched listing (includes reputation + full card per agent)
+const enriched = await reader.listAgents({ offset: 0, limit: 10, enrich: true })
+
+// Filter by owner
+const myAgents = await reader.getAgentsByOwner('0x...')
+```
+
+#### Single Agent
+
+```typescript
 const status = await reader.getStatus(5n)
 const card = await reader.fetchCard('ipfs://...')
+const enriched = await reader.getEnrichedAgent(5n)
+// Returns: StatusResult & { reputation: ReputationResult, card: AgentCard | null }
+```
+
+#### Reputation
+
+```typescript
+const rep = await reader.getReputation(5n)
+// Returns: { score: number, count: number }
+
+const feedback = await reader.getFeedbackEntries(5n)
+// Returns: FeedbackEntry[] with value (bigint), decimals, tags, revoked status
+```
+
+#### Event Watching
+
+```typescript
+// Watch for new agent registrations (real-time)
+const unwatch = reader.watchRegistrations(({ agentId, owner, txHash }) => {
+  console.log(`New agent #${agentId} by ${owner}`)
+})
+
+// Stop watching
+unwatch()
+
+// Watch for burns
+const unwatchBurns = reader.watchDeregistrations(({ agentId, previousOwner }) => {
+  console.log(`Agent #${agentId} burned`)
+})
 ```
 
 ### Convenience Factory
