@@ -1,264 +1,83 @@
-# inj-agent
+# @injective/agent-sdk
 
-CLI and MCP server for managing agent identities on the Injective blockchain.
+TypeScript SDK and CLI for managing on-chain AI agent identities on the [Injective](https://injective.com) blockchain.
 
-Register, update, query, and burn on-chain agent identity NFTs via the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) IdentityRegistry contract. All operations are also available as MCP tools for integration with AI agents and orchestration frameworks.
+Register, update, query, and burn [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity NFTs — from code, from the terminal, or via MCP tools.
 
-## Table of Contents
+## What is ERC-8004?
 
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Commands](#commands)
-  - [register](#register)
-  - [update](#update)
-  - [deregister](#deregister)
-  - [status](#status)
-  - [mcp](#mcp-server)
-- [Agent Card Hosting](#agent-card-hosting)
-- [MCP Integration](#mcp-integration)
-- [Contract Addresses](#contract-addresses)
-- [Development](#development)
-- [Architecture](#architecture)
-- [Troubleshooting](#troubleshooting)
+ERC-8004 is the standard for on-chain AI agent identity. Each agent gets a soulbound NFT with:
+
+- **Agent Card** — JSON metadata hosted on IPFS (name, description, services, image, x402 support)
+- **On-chain metadata** — builder code, agent type, operator address
+- **Wallet linkage** — EIP-712 signed wallet-to-agent binding
+- **Identity tuple** — `eip155:{chainId}:{registry}:{agentId}` for cross-chain discovery
+
+Agents registered on Injective are visible on [8004scan](https://8004scan.io) and the [Injective Agent Hub](https://agents.injective.network).
+
+## Installation
+
+```bash
+# SDK — for programmatic use in your agent code
+npm install @injective/agent-sdk
+
+# CLI — for terminal use and MCP server
+npm install -g injective-agent-cli
+```
+
+> **Requirements:** Node.js 18+, ESM (`"type": "module"` in your package.json). The SDK has `viem` as a peer dependency.
 
 ## Quick Start
 
-```bash
-# Clone and build
-git clone <repo-url> && cd injective-agent-cli
-pnpm install
-pnpm run build
+### From Code (SDK)
 
-# Link the CLI globally
-pnpm setup
-source ~/.zshrc          # or restart your terminal
-pnpm link --global
+```typescript
+import { AgentClient, PinataStorage } from '@injective/agent-sdk'
 
-# Verify
-inj-agent --version
+const client = new AgentClient({
+  privateKey: '0x...',
+  network: 'testnet',
+  storage: new PinataStorage({ jwt: 'your-pinata-jwt' }),
+})
+
+// Register an agent
+const result = await client.register({
+  name: 'FundingRateSniper',
+  type: 'trading',
+  builderCode: 'acme-corp',
+  wallet: client.address,
+  description: 'Autonomous funding rate arbitrage agent',
+  services: [
+    { type: 'mcp', url: 'https://bot.acme.dev/mcp', description: 'MCP endpoint' },
+    { type: 'a2a', url: 'https://bot.acme.dev/a2a' },
+  ],
+  image: 'https://example.com/avatar.png',
+  x402: true,
+})
+
+console.log(`Agent #${result.agentId} registered`)
+console.log(`Card: ${result.cardUri}`)
+console.log(`View: ${result.scanUrl}`)
 ```
 
-> **No global install?** Run commands with `pnpm exec inj-agent <command>` instead.
+### From Terminal (CLI)
 
 ```bash
 # Configure
 cp .env.example .env
-# Edit .env with your private key and Pinata JWT (see IPFS Setup below)
+# Edit .env: INJ_PRIVATE_KEY, PINATA_JWT
 
-# Register an agent with full metadata
+# Register
 inj-agent register \
-  --name "Portfolio Balancer" \
-  --type trading \
-  --builder-code acme-corp \
-  --wallet 0xAbCdEf0123456789AbCdEf0123456789AbCdEf01 \
-  --description "Autonomous portfolio rebalancing agent" \
-  --service '{"type":"mcp","url":"https://agent.acme.dev/mcp"}' \
-  --service '{"type":"a2a","url":"https://agent.acme.dev/a2a","description":"Agent-to-agent endpoint"}' \
-  --image ./avatar.png \
-  --x402
-```
-
-On success, the CLI prints your agent ID, transaction hashes, and a link to [8004scan](https://8004scan.com).
-
-## Configuration
-
-Copy `.env.example` to `.env` and fill in your values:
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `INJ_PRIVATE_KEY` | Yes | -- | Hex-encoded private key (with or without `0x` prefix). Controls agent ownership and pays gas. |
-| `INJ_NETWORK` | No | `testnet` | `testnet` or `mainnet` |
-| `INJ_RPC_URL` | No | Network default | Override the default RPC endpoint |
-| `PINATA_JWT` | No | -- | Pinata API key for automatic IPFS upload. If unset, you must provide `--uri` when registering. |
-
-Your private key derives an EVM address that becomes the owner of any agents you register. On testnet, get INJ from the [Injective faucet](https://testnet.faucet.injective.network/).
-
-## Commands
-
-### register
-
-Mint a new agent identity NFT.
-
-```bash
-inj-agent register \
-  --name "My Agent" \
+  --name "FundingRateSniper" \
   --type trading \
   --builder-code acme-corp \
   --wallet 0x... \
-  --description "Optional description"
+  --service '{"type":"mcp","url":"https://bot.acme.dev/mcp"}' \
+  --x402
 ```
 
-**Required flags:**
-
-| Flag | Value | Notes |
-|------|-------|-------|
-| `--name <name>` | 1-100 characters | Wrap in quotes if it contains spaces |
-| `--type <type>` | `trading` `liquidation` `data` `portfolio` `other` | On-chain agent category |
-| `--builder-code <code>` | Any non-empty string | Identifies the builder or organization |
-| `--wallet <address>` | Checksummed `0x` EVM address | Wallet to link to this agent |
-
-**Optional flags:**
-
-| Flag | Description |
-|------|-------------|
-| `--description <desc>` | Up to 500 characters |
-| `--service <json>` | Service endpoint as JSON (repeatable). See [Service Endpoints](#service-endpoints) below. |
-| `--image <pathOrUrl>` | Agent avatar. Local file path (uploaded to IPFS via Pinata) or URL (`https://`, `ipfs://`). |
-| `--x402` | Declare support for x402 payments |
-| `--uri <uri>` | Pre-hosted agent card URL (skips IPFS upload) |
-| `--gas-price <gwei>` | Override gas price |
-| `--dry-run` | Simulate without sending transactions |
-| `--json` | Output as JSON |
-
-**How registration works:**
-
-1. An agent card JSON is generated from your inputs
-2. The card is uploaded to IPFS via Pinata (unless `--uri` is provided)
-3. Two transactions are sent:
-   - `register()` — mints the identity NFT with metadata
-   - `setAgentWallet()` — links the wallet via an EIP-712 signature
-4. The CLI prints the agent ID, card URI, tx hashes, and 8004scan link
-
-**Address format:** The `--wallet` flag expects a checksummed `0x` EVM address, not `inj1...` bech32. Convert at the [Injective explorer](https://explorer.injective.network/) if needed.
-
-**Wallet linkage:** The wallet link transaction only executes if `--wallet` matches the address derived from your `INJ_PRIVATE_KEY`. If they differ, registration still succeeds but the wallet is not linked, and you'll see a warning.
-
-### update
-
-Update metadata for an existing agent.
-
-```bash
-inj-agent update <agentId> [flags]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--name <name>` | New name |
-| `--description <desc>` | New description |
-| `--builder-code <code>` | New builder code |
-| `--type <type>` | New agent type |
-| `--wallet <address>` | New wallet (self-linking only) |
-| `--service <json>` | Add or replace a service endpoint (repeatable, merges by type) |
-| `--remove-service <type>` | Remove a service by protocol type (repeatable) |
-| `--image <pathOrUrl>` | New avatar (local file or URL) |
-| `--x402` | Enable x402 payment support |
-| `--no-x402` | Disable x402 payment support |
-| `--uri <uri>` | New agent card URI (skips fetch-merge-upload) |
-| `--json` | Output as JSON |
-
-Only the caller who owns the agent can update it. The update command fetches the existing agent card from IPFS, merges your changes, re-uploads, and updates the on-chain token URI. If the existing card can't be fetched, the CLI prompts for confirmation before proceeding with a fresh card.
-
-### deregister
-
-Burn an agent identity NFT permanently.
-
-```bash
-inj-agent deregister <agentId>
-inj-agent deregister <agentId> --force    # skip confirmation
-```
-
-Without `--force`, the CLI fetches the agent card, shows the agent name, and asks you to confirm by typing it.
-
-### status
-
-Query on-chain details for an agent.
-
-```bash
-inj-agent status <agentId>
-inj-agent status <agentId> --json
-```
-
-Displays the agent's name, type, builder code, owner, linked wallet, token URI, and identity tuple.
-
-### MCP Server
-
-Start a stdio-based MCP server:
-
-```bash
-inj-agent mcp
-```
-
-This exposes the same operations as MCP tools for use by AI agents and orchestration frameworks. See [MCP Integration](#mcp-integration) for details.
-
-## Service Endpoints
-
-The `--service` flag takes a JSON object with `type`, `url`, and an optional `description`:
-
-```bash
---service '{"type":"mcp","url":"https://agent.example.com/mcp"}'
---service '{"type":"a2a","url":"https://agent.example.com/a2a","description":"Agent-to-agent endpoint"}'
-```
-
-Valid service types: `mcp`, `a2a`, `web`, `oasf`.
-
-The flag is repeatable. Pass it multiple times to register multiple endpoints. On `update`, services are merged by type: if you update with `--service '{"type":"mcp","url":"https://new-url.com/mcp"}'` and an MCP entry already exists, it gets replaced. Use `--remove-service mcp` to remove a service entirely.
-
-The CLI validates that each URL is well-formed and attempts an HTTP HEAD request to check reachability. Unreachable URLs produce a warning but do not block registration.
-
-## IPFS Setup (Pinata)
-
-The CLI uses [Pinata](https://www.pinata.cloud/) to upload agent cards and images to IPFS. Each builder uses their own Pinata account.
-
-1. Create a free account at [app.pinata.cloud](https://app.pinata.cloud)
-2. Go to **API Keys** and click **+ New Key**
-3. Name it (e.g. `inj-agent-testnet`)
-4. Under **V3 Resources**, set **Files** to **Write** (covers both `pinFileToIPFS` and `pinJSONToIPFS`)
-5. Click **Create** and copy the **JWT** (the long string starting with `eyJ...`)
-6. Add it to your `.env`:
-
-```
-PINATA_JWT=eyJhbGciOiJIUzI1NiIs...
-```
-
-The free tier provides 500MB storage and 100 uploads/month, which is sufficient for testnet. For production, builders can use any IPFS pinning service and pass the resulting URI via `--uri`.
-
-If `PINATA_JWT` is not set, the CLI still works for registration with `--uri`, and for local image paths it will warn and skip the image rather than blocking the registration.
-
-## Agent Card Hosting
-
-The CLI generates agent card JSON automatically during registration. You choose how to host it:
-
-**Automatic (recommended):** Set `PINATA_JWT` in your `.env`. The CLI uploads the card to IPFS via [Pinata](https://www.pinata.cloud/) and uses the returned `ipfs://` URI.
-
-**Manual:** Host a JSON file matching the ERC-8004 schema at any public URL, then pass it via `--uri`:
-
-```json
-{
-  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
-  "name": "Portfolio Balancer",
-  "description": "Autonomous portfolio rebalancing agent",
-  "services": [
-    { "type": "mcp", "url": "https://agent.acme.dev/mcp" },
-    { "type": "a2a", "url": "https://agent.acme.dev/a2a", "description": "Agent-to-agent endpoint" }
-  ],
-  "image": "ipfs://QmXyz.../avatar.png",
-  "x402Support": true,
-  "metadata": {
-    "chain": "injective",
-    "chainId": "1776",
-    "agentType": "trading",
-    "builderCode": "acme-corp",
-    "operatorAddress": "0xYourEvmAddress"
-  }
-}
-```
-
-```bash
-inj-agent register --uri "https://example.com/card.json" ...
-```
-
-## MCP Integration
-
-The MCP server exposes four tools:
-
-| Tool | Description |
-|------|-------------|
-| `agent_register` | Register a new agent identity |
-| `agent_update` | Update agent metadata |
-| `agent_deregister` | Burn an agent (requires `confirm: true`) |
-| `agent_status` | Query agent details |
-
-All tools accept the same parameters as their CLI counterparts and return structured JSON. Configure your MCP client to launch the server:
+### From an AI Agent (MCP)
 
 ```json
 {
@@ -271,7 +90,307 @@ All tools accept the same parameters as their CLI counterparts and return struct
 }
 ```
 
-## Contract Addresses
+The MCP server exposes `agent_register`, `agent_update`, `agent_deregister`, and `agent_status` tools.
+
+## Table of Contents
+
+- [SDK Reference](#sdk-reference)
+  - [AgentClient](#agentclient)
+  - [AgentReadClient](#agentreadclient)
+  - [Storage Providers](#storage-providers)
+  - [Card Utilities](#card-utilities)
+  - [Wallet Utilities](#wallet-utilities)
+  - [Error Types](#error-types)
+- [CLI Reference](#cli-reference)
+  - [register](#register)
+  - [update](#update)
+  - [deregister](#deregister)
+  - [status](#status)
+  - [mcp](#mcp-server)
+- [Configuration](#configuration)
+- [Agent Card Schema](#agent-card-schema)
+- [Network & Contracts](#network--contracts)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+
+## SDK Reference
+
+### AgentClient
+
+The primary entry point for all write operations.
+
+```typescript
+import { AgentClient, PinataStorage } from '@injective/agent-sdk'
+
+const client = new AgentClient({
+  privateKey: '0x...',              // required
+  network: 'testnet',              // 'testnet' | 'mainnet' (default: testnet)
+  rpcUrl: 'https://custom-rpc',   // optional override
+  storage: new PinataStorage({ jwt: '...' }),  // optional
+  callbacks: {
+    onProgress: (msg) => console.log(msg),  // optional
+    onWarning: (msg) => console.warn(msg),  // optional
+  },
+})
+
+// Properties
+client.address     // '0x...' — EVM address derived from private key
+client.injAddress  // 'inj1...' — bech32 Injective address
+client.config      // NetworkConfig
+```
+
+#### `client.register(opts)`
+
+```typescript
+const result = await client.register({
+  name: 'MyBot',                   // 1-100 characters
+  type: 'trading',                 // trading | liquidation | data | portfolio | other
+  builderCode: 'acme-corp',       // builder identifier
+  wallet: '0x...',                 // wallet to link
+  description: 'Optional desc',   // up to 500 chars
+  services: [{ type: 'mcp', url: 'https://...' }],
+  image: 'https://...',           // URL or local file path
+  x402: true,                     // x402 payment support
+  uri: 'ipfs://...',              // skip auto-upload, use this URI
+  gasPrice: 10n,                  // override gas price (gwei)
+  dryRun: true,                   // simulate only, no tx
+})
+
+// Returns: { agentId, identityTuple, cardUri, txHashes, scanUrl }
+```
+
+#### `client.update(agentId, opts)`
+
+```typescript
+const result = await client.update(5n, {
+  services: [{ type: 'mcp', url: 'https://new-endpoint.com/mcp' }],
+  x402: true,
+  allowFreshCard: false,  // if card fetch fails, throw instead of using blank card
+})
+
+// Returns: { agentId, updatedFields, txHashes }
+```
+
+Services are merged by type (upsert). Use `removeServices: ['mcp']` to delete a service. The update fetches the existing card from IPFS, merges changes, re-uploads, and updates the on-chain token URI.
+
+#### `client.deregister(agentId, opts?)`
+
+```typescript
+const result = await client.deregister(5n, { gasPrice: 20n })
+
+// Returns: { agentId, txHash }
+```
+
+Burns the agent identity NFT. This is irreversible. The SDK does not prompt for confirmation — your application is responsible for confirmation UX.
+
+#### `client.getStatus(agentId)`
+
+```typescript
+const status = await client.getStatus(5n)
+// Returns: { agentId, name, type, owner, wallet, builderCode, tokenUri, identityTuple }
+```
+
+### AgentReadClient
+
+For read-only operations. No private key required.
+
+```typescript
+import { AgentReadClient } from '@injective/agent-sdk'
+
+const reader = new AgentReadClient({ network: 'testnet' })
+const status = await reader.getStatus(5n)
+const card = await reader.fetchCard('ipfs://...')
+```
+
+### Convenience Factory
+
+For Node.js applications that use environment variables:
+
+```typescript
+import { createAgentClientFromEnv } from '@injective/agent-sdk'
+
+// Reads INJ_PRIVATE_KEY, INJ_NETWORK, INJ_RPC_URL, PINATA_JWT from process.env
+const client = createAgentClientFromEnv()
+```
+
+### Storage Providers
+
+The SDK uses a pluggable storage interface for uploading agent cards and images to IPFS.
+
+```typescript
+interface StorageProvider {
+  uploadJSON(data: unknown, name?: string): Promise<string>  // returns URI
+  uploadFile?(content: Uint8Array, filename: string, mimeType: string): Promise<string>
+}
+```
+
+**Built-in providers:**
+
+```typescript
+import { PinataStorage, CustomUrlStorage } from '@injective/agent-sdk'
+
+// Pinata — uploads to IPFS via Pinata API
+const storage = new PinataStorage({ jwt: 'your-pinata-jwt' })
+
+// Custom URL — returns a pre-configured URI (no upload)
+const storage = new CustomUrlStorage('https://mysite.com/agent-card.json')
+```
+
+**Custom provider example:**
+
+```typescript
+class S3Storage implements StorageProvider {
+  async uploadJSON(data: unknown, name?: string): Promise<string> {
+    const key = `agent-cards/${name}.json`
+    await s3.putObject({ Bucket: 'my-bucket', Key: key, Body: JSON.stringify(data) })
+    return `https://my-bucket.s3.amazonaws.com/${key}`
+  }
+}
+```
+
+### Card Utilities
+
+```typescript
+import {
+  generateAgentCard,   // Build card JSON from options
+  mergeAgentCard,      // Apply partial updates to an existing card
+  fetchAgentCard,      // Fetch and validate a card from IPFS/HTTPS
+  validateServiceEntry // Validate a service entry object
+} from '@injective/agent-sdk'
+
+const card = generateAgentCard({
+  name: 'MyBot', type: 'trading', builderCode: 'test',
+  operatorAddress: '0x...', services: [...], image: '...', x402: true,
+})
+
+const updated = mergeAgentCard(card, {
+  services: [{ type: 'a2a', url: 'https://new.com/a2a' }],
+  x402: false,
+})
+```
+
+### Wallet Utilities
+
+```typescript
+import { evmToInj, identityTuple, signWalletLink } from '@injective/agent-sdk'
+
+evmToInj('0xf39F...')  // 'inj1...'
+identityTuple(config, 5n)  // 'eip155:1439:0x19d1...:5'
+```
+
+### Error Types
+
+```typescript
+import {
+  AgentSdkError,    // Base error class
+  ContractError,    // On-chain revert (has .revertReason)
+  StorageError,     // Upload failure
+  ValidationError,  // Input validation
+} from '@injective/agent-sdk'
+
+try {
+  await client.register(opts)
+} catch (err) {
+  if (err instanceof ContractError) {
+    console.log(err.revertReason)  // e.g. 'EmptyTokenURI'
+  }
+}
+```
+
+## CLI Reference
+
+### register
+
+```bash
+inj-agent register \
+  --name "My Agent" --type trading --builder-code acme --wallet 0x... \
+  [--description "..."] [--service '{"type":"mcp","url":"..."}'] \
+  [--image ./avatar.png] [--x402] [--uri "ipfs://..."] \
+  [--gas-price 10] [--dry-run] [--json]
+```
+
+### update
+
+```bash
+inj-agent update <agentId> \
+  [--name "..."] [--type ...] [--builder-code ...] [--wallet 0x...] \
+  [--service '{"type":"mcp","url":"..."}'] [--remove-service mcp] \
+  [--image ...] [--x402] [--no-x402] [--uri "..."] [--json]
+```
+
+Fetches the existing card, merges changes, re-uploads to IPFS, and updates the on-chain URI.
+
+### deregister
+
+```bash
+inj-agent deregister <agentId> [--force] [--json]
+```
+
+Burns the NFT permanently. Without `--force`, prompts for confirmation by name.
+
+### status
+
+```bash
+inj-agent status <agentId> [--json]
+```
+
+### MCP Server
+
+```bash
+inj-agent mcp
+```
+
+| Tool | Description |
+|------|-------------|
+| `agent_register` | Register a new agent identity |
+| `agent_update` | Update agent metadata |
+| `agent_deregister` | Burn an agent (requires `confirm: true`) |
+| `agent_status` | Query agent details |
+
+## Configuration
+
+| Variable | Required | Default | Description |
+|----------|:--------:|---------|-------------|
+| `INJ_PRIVATE_KEY` | Yes | -- | Hex-encoded private key (with or without `0x` prefix) |
+| `INJ_NETWORK` | No | `testnet` | `testnet` or `mainnet` |
+| `INJ_RPC_URL` | No | Network default | Override RPC endpoint |
+| `PINATA_JWT` | No | -- | Pinata API key for IPFS uploads |
+
+Get testnet INJ from the [Injective faucet](https://testnet.faucet.injective.network/). Get a Pinata JWT at [app.pinata.cloud](https://app.pinata.cloud/developers/api-keys).
+
+## Agent Card Schema
+
+Every registered agent has a JSON card hosted on IPFS conforming to the ERC-8004 registration-v1 schema:
+
+```json
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "FundingRateSniper",
+  "description": "Autonomous funding rate arb agent",
+  "services": [
+    { "type": "mcp", "url": "https://bot.acme.dev/mcp", "description": "MCP endpoint" },
+    { "type": "a2a", "url": "https://bot.acme.dev/a2a" }
+  ],
+  "image": "ipfs://QmXyz.../avatar.png",
+  "x402Support": true,
+  "metadata": {
+    "chain": "injective",
+    "chainId": "1776",
+    "agentType": "trading",
+    "builderCode": "acme-corp",
+    "operatorAddress": "0x..."
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `services[].type` | `mcp` `a2a` `web` `oasf` | Protocol type |
+| `image` | string | Avatar URL or `""` |
+| `x402Support` | boolean | x402 payment protocol support |
+
+## Network & Contracts
 
 ### Testnet (Chain ID: 1439)
 
@@ -281,65 +400,87 @@ All tools accept the same parameters as their CLI counterparts and return struct
 | ReputationRegistry | `0x019b24a73d493d86c61cc5dfea32e4865eecb922` |
 | ValidationRegistry | `0xbd84e152f41e28d92437b4b822b77e7e31bfd2a4` |
 
+RPC: `https://testnet.sentry.chain.json-rpc.injective.network`
+IPFS Gateway: `https://w3s.link/ipfs/`
+
 Mainnet contracts are not yet deployed.
 
 ### Agent Types
 
 `trading` | `liquidation` | `data` | `portfolio` | `other`
 
-## Development
+### Service Types
 
-```bash
-pnpm dev register --help      # run without building (uses tsx)
-pnpm test                     # run tests
-pnpm test:watch               # watch mode
-pnpm run build                # compile TypeScript to dist/
-```
+`mcp` | `a2a` | `web` | `oasf`
 
 ## Architecture
 
 ```
-src/
-  cli.ts                # Commander entry point
-  commands/
-    register.ts         # Mint agent identity NFT
-    update.ts           # Update agent metadata
-    deregister.ts       # Burn agent NFT
-    status.ts           # Query agent state
-  lib/
-    agent-card.ts       # ERC-8004 agent card generation
-    config.ts           # Network configuration (testnet/mainnet)
-    contracts.ts        # viem contract interactions
-    errors.ts           # Typed CLI errors + revert parsing
-    formatting.ts       # Human-readable output helpers
-    ipfs.ts             # IPFS upload via Pinata
-    keys.ts             # Private key + address derivation
-    wallet-signature.ts # EIP-712 wallet linkage signatures
-  mcp/
-    server.ts           # MCP stdio server
-    tools.ts            # MCP tool definitions (Zod schemas)
-  types/
-    index.ts            # Shared types and interfaces
-  abi/
-    IdentityRegistry.json
-    ReputationRegistry.json
-    ValidationRegistry.json
+packages/
+  sdk/                          @injective/agent-sdk
+    src/
+      index.ts                  Public API exports
+      client.ts                 AgentClient (register, update, deregister, getStatus)
+      read-client.ts            AgentReadClient (read-only, no private key)
+      types.ts                  All public types & interfaces
+      config.ts                 Network config (testnet/mainnet)
+      contracts.ts              viem client setup, ABI encoding
+      wallet.ts                 Key resolution, EIP-712 signing, evmToInj
+      card.ts                   Agent card generation, merging, validation
+      errors.ts                 AgentSdkError, ContractError, StorageError, ValidationError
+      validation.ts             URL safety (SSRF protection)
+      storage/
+        pinata.ts               PinataStorage provider
+        custom-url.ts           CustomUrlStorage provider
+      abi/                      Contract ABIs
+  cli/                          injective-agent-cli
+    src/
+      cli.ts                    Commander entry point
+      formatting.ts             Human-readable output
+      env.ts                    Environment variable helpers
+      mcp/
+        server.ts               MCP stdio server
+        tools.ts                MCP tool definitions (Zod schemas)
 ```
 
-Both the CLI and MCP server call the same command functions, keeping behavior consistent across interfaces.
+The CLI and MCP server are thin wrappers over the SDK. All business logic lives in `@injective/agent-sdk`.
+
+## Development
+
+```bash
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm --filter @injective/agent-sdk build
+pnpm --filter injective-agent-cli build
+
+# Run SDK tests
+pnpm --filter @injective/agent-sdk test
+
+# Run CLI in dev mode
+cd packages/cli && pnpm dev register --help
+```
 
 ## Troubleshooting
 
 | Error | Fix |
 |-------|-----|
-| `command not found: inj-agent` | Run `pnpm setup && source ~/.zshrc && pnpm link --global` from the project directory |
-| `ERR_PNPM_NO_GLOBAL_BIN_DIR` | Run `pnpm setup`, then `source ~/.zshrc` before `pnpm link --global` |
-| `required option '--wallet' not specified` | Ensure all four required flags are present: `--name`, `--type`, `--builder-code`, `--wallet` |
-| `No Pinata API key found` | Set `PINATA_JWT` in `.env` or provide `--uri` manually |
-| `Invalid wallet address: inj1...` | Convert your bech32 address to `0x` format at the [Injective explorer](https://explorer.injective.network/) |
-| `Skipping wallet linkage` | Your `--wallet` doesn't match your `INJ_PRIVATE_KEY` address. The agent registered but the wallet was not linked. |
-| `No signing key provided` | `INJ_PRIVATE_KEY` is not set. Check your `.env` file. |
-| Shell shows `dquote>` or `quote>` | You have unclosed or smart quotes. Press `Ctrl+C` and re-type using straight quotes from your keyboard. |
+| `command not found: inj-agent` | Run `pnpm setup && source ~/.zshrc && pnpm link --global` |
+| `No signing key provided` | Set `INJ_PRIVATE_KEY` in `.env` |
+| `No Pinata API key found` | Set `PINATA_JWT` in `.env` or use `--uri` |
+| `Invalid wallet address: inj1...` | Use `0x` EVM format, not bech32 |
+| `Skipping wallet linkage` | `--wallet` doesn't match your key's address |
+| `Mainnet contracts not yet deployed` | Use `INJ_NETWORK=testnet` |
+| `Transaction reverted` | Check gas, balance, and that you own the agent |
+
+## Security
+
+- The SDK never reads `process.env` (except `createAgentClientFromEnv`). All config is passed explicitly.
+- Private keys are never logged, serialized, or included in any result object.
+- Service URLs are validated against private/internal addresses (SSRF protection).
+- Fetched IPFS cards are schema-validated before use (no prototype pollution).
+- MCP `agent_deregister` requires explicit `confirm: true` parameter.
 
 ## License
 

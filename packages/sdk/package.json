@@ -1,0 +1,35 @@
+{
+  "name": "@injective/agent-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for managing agent identities on the Injective chain",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "bech32": "^2.0.0"
+  },
+  "peerDependencies": {
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3",
+    "viem": "^2.47.6",
+    "vitest": "^4.1.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "ISC"
+}
