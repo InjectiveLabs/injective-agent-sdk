@@ -1,8 +1,11 @@
 export type AgentType = "trading" | "liquidation" | "data" | "portfolio" | "other";
 export const AGENT_TYPES: AgentType[] = ["trading", "liquidation", "data", "portfolio", "other"];
 
-export type ServiceType = "mcp" | "a2a" | "web" | "oasf";
-export const SERVICE_TYPES: ServiceType[] = ["mcp", "a2a", "web", "oasf"];
+export type ServiceType = "mcp" | "a2a" | "web" | "oasf" | "rest" | "grpc" | "webhook" | "custom";
+export const SERVICE_TYPES: ServiceType[] = ["mcp", "a2a", "web", "oasf", "rest", "grpc", "webhook", "custom"];
+
+export const AGENT_CARD_TYPE = "https://eips.ethereum.org/EIPS/eip-8004#registration-v1" as const;
+export const AGENT_CARD_TYPE_ALT = "https://erc8004.org/agent-card" as const;
 
 export interface ServiceEntry {
   type: ServiceType;
@@ -11,7 +14,7 @@ export interface ServiceEntry {
 }
 
 export interface AgentCard {
-  type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1";
+  type: string;
   name: string;
   description?: string;
   services: ServiceEntry[];
@@ -19,7 +22,7 @@ export interface AgentCard {
   x402Support: boolean;
   metadata: {
     chain: "injective";
-    chainId: "1776";
+    chainId: string;
     agentType: AgentType;
     builderCode: string;
     operatorAddress: string;
@@ -106,14 +109,16 @@ export interface NetworkConfig {
 }
 
 export interface AgentClientConfig {
-  privateKey: `0x${string}`;
+  privateKey?: `0x${string}`;           // now optional
+  keystorePassword?: string;            // unlock keystore file
+  keystorePath?: string;                // custom path (default: ~/.injective-agent/keystore.json)
   network?: "testnet" | "mainnet";
   rpcUrl?: string;
   storage?: StorageProvider;
   callbacks?: AgentClientCallbacks;
   audit?: boolean;
   auditLogPath?: string;
-  auditSource?: "cli" | "mcp" | "sdk";
+  auditSource?: "cli" | "sdk";
 }
 
 export interface ReadClientConfig {
@@ -140,6 +145,7 @@ export interface GenerateCardOptions {
   services?: ServiceEntry[];
   image?: string;
   x402?: boolean;
+  chainId?: number | string;
 }
 
 export interface CardUpdates {
@@ -176,14 +182,64 @@ export interface ListAgentsResult {
 export interface ReputationResult {
   score: number;
   count: number;
+  clients: `0x${string}`[];
 }
 
 export interface FeedbackEntry {
   client: `0x${string}`;
+  feedbackIndex: bigint;
   value: bigint;
   decimals: number;
   tags: [string, string];
   revoked: boolean;
+}
+
+// --- Feedback Write ---
+export interface GiveFeedbackOptions {
+  agentId: bigint;
+  value: bigint;
+  valueDecimals?: number;
+  tag1?: string;
+  tag2?: string;
+  endpoint?: string;
+  feedbackURI?: string;
+  feedbackHash?: `0x${string}`;
+  gasPrice?: bigint;
+  dryRun?: boolean;
+}
+
+export interface GiveFeedbackResult {
+  txHash: `0x${string}`;
+  agentId: bigint;
+  feedbackIndex: bigint;
+  gasEstimate?: bigint;
+}
+
+export interface RevokeFeedbackOptions {
+  agentId: bigint;
+  feedbackIndex: bigint;
+  gasPrice?: bigint;
+  dryRun?: boolean;
+}
+
+export interface RevokeFeedbackResult {
+  txHash: `0x${string}`;
+  agentId: bigint;
+  gasEstimate?: bigint;
+}
+
+// --- Feedback Query ---
+export interface FeedbackQueryOptions {
+  clientAddresses?: `0x${string}`[];
+  tag1?: string;
+  tag2?: string;
+  includeRevoked?: boolean;
+}
+
+export interface ReputationQueryOptions {
+  clientAddresses?: `0x${string}`[];
+  tag1?: string;
+  tag2?: string;
 }
 
 export interface EnrichedAgentResult extends StatusResult {

@@ -56,6 +56,14 @@ export function identityTuple(config: NetworkConfig, agentId: bigint): string {
   return `eip155:${config.chainId}:${config.identityRegistry}:${agentId}`;
 }
 
-export function walletLinkDeadline(offsetSeconds = 600): bigint {
+// Must match IdentityRegistryUpgradeable.sol MAX_DEADLINE_DELAY (5 minutes)
+export const MAX_DEADLINE_SECONDS = 300;
+
+export function walletLinkDeadline(offsetSeconds = 240): bigint {
+  if (offsetSeconds > MAX_DEADLINE_SECONDS) {
+    throw new Error(
+      `walletLinkDeadline: offsetSeconds (${offsetSeconds}) exceeds contract maximum (${MAX_DEADLINE_SECONDS})`
+    );
+  }
   return BigInt(Math.floor(Date.now() / 1000) + offsetSeconds);
 }

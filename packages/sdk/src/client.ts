@@ -2,19 +2,24 @@ import type {
   AgentClientConfig, NetworkConfig, RegisterOptions, RegisterResult,
   UpdateOptions, UpdateResult, DeregisterResult, DeregisterOptions, StatusResult,
   AgentClientCallbacks, StorageProvider, AgentCard,
+  GiveFeedbackOptions, GiveFeedbackResult, RevokeFeedbackOptions, RevokeFeedbackResult,
 } from "./types.js";
 import { AGENT_TYPES } from "./types.js";
 import { resolveNetworkConfig } from "./config.js";
 import { resolveKey, signWalletLink, type ResolvedKey } from "./wallet.js";
-import { createClients, createReadOnlyClients, encodeStringMetadata, identityTuple, walletLinkDeadline } from "./contracts.js";
+import { createClients, createReadOnlyClients, encodeStringMetadata, identityTuple, walletLinkDeadline, ReputationRegistryABI } from "./contracts.js";
 import { generateAgentCard, mergeAgentCard, fetchAgentCard, checkServiceReachability } from "./card.js";
 import { AgentReadClient } from "./read-client.js";
 import { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
+import { loadKeystore, decryptKey, DEFAULT_KEYSTORE_PATH } from "./keystore.js";
 import { simulateOnly } from "./simulate.js";
 import { AuditLogger } from "./audit.js";
-import { isAddress, keccak256, toHex } from "viem";
+import { isAddress, keccak256, toHex, decodeEventLog } from "viem";
 
 const REGISTERED_EVENT_TOPIC = keccak256(toHex("Registered(uint256,string,address)"));
+const NEW_FEEDBACK_EVENT_TOPIC = keccak256(
+  toHex("NewFeedback(uint256,address,uint64,int128,uint8,string,string,string,string,string,bytes32)")
+);
 
 const ALLOWED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".svg", ".webp"];
 const MIME_TYPES: Record<string, string> = {
@@ -37,7 +42,20 @@ export class AgentClient {
 
   constructor(opts: AgentClientConfig) {
     this.config = resolveNetworkConfig({ network: opts.network, rpcUrl: opts.rpcUrl });
-    this.key = resolveKey(opts.privateKey);
+
+    let rawKey: `0x${string}`;
+    if (opts.privateKey) {
+      rawKey = opts.privateKey;
+    } else if (opts.keystorePassword !== undefined) {
+      const ks = loadKeystore(opts.keystorePath ?? DEFAULT_KEYSTORE_PATH);
+      rawKey = decryptKey({ keystore: ks, password: opts.keystorePassword });
+    } else {
+      throw new ValidationError(
+        "No signing key provided. Pass privateKey, or keystorePassword + keystorePath to use keystore."
+      );
+    }
+
+    this.key = resolveKey(rawKey);
     this.storage = opts.storage;
     this.callbacks = opts.callbacks ?? {};
     this.address = this.key.address;
@@ -56,6 +74,10 @@ export class AgentClient {
 
   private get auditBase() {
     return { network: this.config.name, chainId: this.config.chainId, signerAddress: this.key.address, contract: this.config.identityRegistry } as const;
+  }
+
+  private get reputationAuditBase() {
+    return { ...this.auditBase, contract: this.config.reputationRegistry } as const;
   }
 
   async register(opts: RegisterOptions): Promise<RegisterResult> {
@@ -78,6 +100,7 @@ export class AgentClient {
       name: opts.name, type: opts.type, description: opts.description,
       builderCode: opts.builderCode, operatorAddress: this.key.address,
       services: opts.services, image: resolvedImage, x402: opts.x402,
+      chainId: this.config.chainId,
     });
 
     const metadata = [
@@ -232,6 +255,7 @@ export class AgentClient {
               existingCard = generateAgentCard({
                 name: `Agent ${agentId}`, type: "other",
                 builderCode: "", operatorAddress: "",
+                chainId: this.config.chainId,
               });
             } else {
               throw new AgentSdkError(
@@ -397,6 +421,130 @@ export class AgentClient {
       }
       const formatted = formatContractError(error);
       this.audit.log({ event: "tx:fail", ...this.auditBase, method: "deregister", args: deregAuditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
+      throw formatted;
+    }
+  }
+
+  async giveFeedback(opts: GiveFeedbackOptions): Promise<GiveFeedbackResult> {
+    const { publicClient, walletClient, account } = this.clients;
+    const { agentId, value } = opts;
+    const valueDecimals = opts.valueDecimals ?? 0;
+    const tag1 = opts.tag1 ?? "";
+    const tag2 = opts.tag2 ?? "";
+    const endpoint = opts.endpoint ?? "";
+    const feedbackURI = opts.feedbackURI ?? "";
+    const feedbackHash = opts.feedbackHash ?? (`0x${"0".repeat(64)}` as `0x${string}`);
+    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const startMs = Date.now();
+    const args = [agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash] as const;
+    const auditArgs = AuditLogger.sanitizeArgs("giveFeedback", args);
+
+    const baseParams = {
+      address: this.config.reputationRegistry,
+      abi: ReputationRegistryABI as unknown[],
+      functionName: "giveFeedback" as const,
+      args: args as readonly unknown[],
+      account,
+      gasPrice,
+    };
+
+    if (opts.dryRun) {
+      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
+      return { txHash: `0x${"0".repeat(64)}` as `0x${string}`, agentId, feedbackIndex: 0n, gasEstimate: sim.gasEstimate };
+    }
+
+    try {
+      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
+      this.audit.log({ event: "tx:simulate", ...this.reputationAuditBase, method: "giveFeedback", args: auditArgs,
+        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) }, durationMs: Date.now() - startMs });
+
+      this.callbacks.onProgress?.("Broadcasting giveFeedback...");
+      const hash = await walletClient.writeContract({
+        address: baseParams.address, abi: baseParams.abi,
+        functionName: "giveFeedback", args: [...args] as unknown[],
+        account, gasPrice,
+      });
+      this.audit.log({ event: "tx:broadcast", ...this.reputationAuditBase, method: "giveFeedback", args: auditArgs,
+        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) },
+        durationMs: Date.now() - startMs, result: { txHash: hash } });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+      const registryAddr = this.config.reputationRegistry.toLowerCase();
+      const feedbackLog = receipt.logs.find(
+        (log) => log.address.toLowerCase() === registryAddr
+          && log.topics[0] === NEW_FEEDBACK_EVENT_TOPIC
+      );
+      if (!feedbackLog) throw new ContractError("Failed to extract feedbackIndex from giveFeedback transaction.");
+
+      const decoded = decodeEventLog({
+        abi: ReputationRegistryABI,
+        data: feedbackLog.data,
+        topics: feedbackLog.topics,
+      });
+      const feedbackIndex = BigInt((decoded.args as any).feedbackIndex);
+
+      this.audit.log({ event: "tx:confirm", ...this.reputationAuditBase, method: "giveFeedback", args: auditArgs, durationMs: Date.now() - startMs, result: { txHash: hash, gasUsed: String(receipt.gasUsed), blockNumber: String(receipt.blockNumber) } });
+
+      return { txHash: hash, agentId, feedbackIndex };
+    } catch (error) {
+      if (error instanceof SimulationError || error instanceof AgentSdkError) {
+        this.audit.log({ event: "tx:fail", ...this.reputationAuditBase, method: "giveFeedback", args: auditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
+        throw error;
+      }
+      const formatted = formatContractError(error);
+      this.audit.log({ event: "tx:fail", ...this.reputationAuditBase, method: "giveFeedback", args: auditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
+      throw formatted;
+    }
+  }
+
+  async revokeFeedback(opts: RevokeFeedbackOptions): Promise<RevokeFeedbackResult> {
+    const { publicClient, walletClient, account } = this.clients;
+    const { agentId, feedbackIndex } = opts;
+    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const startMs = Date.now();
+    const auditArgs = AuditLogger.sanitizeArgs("revokeFeedback", [agentId, feedbackIndex]);
+
+    const baseParams = {
+      address: this.config.reputationRegistry,
+      abi: ReputationRegistryABI as unknown[],
+      functionName: "revokeFeedback" as const,
+      args: [agentId, feedbackIndex] as readonly unknown[],
+      account,
+      gasPrice,
+    };
+
+    if (opts.dryRun) {
+      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
+      return { txHash: `0x${"0".repeat(64)}` as `0x${string}`, agentId, gasEstimate: sim.gasEstimate };
+    }
+
+    try {
+      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
+      this.audit.log({ event: "tx:simulate", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs,
+        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) }, durationMs: Date.now() - startMs });
+
+      this.callbacks.onProgress?.("Broadcasting revokeFeedback...");
+      const hash = await walletClient.writeContract({
+        address: baseParams.address, abi: baseParams.abi,
+        functionName: "revokeFeedback", args: [agentId, feedbackIndex] as unknown[],
+        account, gasPrice,
+      });
+      this.audit.log({ event: "tx:broadcast", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs,
+        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) },
+        durationMs: Date.now() - startMs, result: { txHash: hash } });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      this.audit.log({ event: "tx:confirm", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs, durationMs: Date.now() - startMs, result: { txHash: hash, gasUsed: String(receipt.gasUsed), blockNumber: String(receipt.blockNumber) } });
+
+      return { txHash: hash, agentId };
+    } catch (error) {
+      if (error instanceof SimulationError || error instanceof AgentSdkError) {
+        this.audit.log({ event: "tx:fail", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
+        throw error;
+      }
+      const formatted = formatContractError(error);
+      this.audit.log({ event: "tx:fail", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
       throw formatted;
     }
   }
