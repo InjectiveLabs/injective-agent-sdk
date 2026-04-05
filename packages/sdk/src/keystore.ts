@@ -1,7 +1,7 @@
 import {
   createCipheriv, createDecipheriv, randomBytes, scryptSync,
 } from "node:crypto";
-import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdirSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { privateKeyToAddress } from "viem/accounts";
@@ -47,6 +47,7 @@ export function encryptKey({ privateKey, password }: EncryptKeyOptions): Keystor
   const cipher = createCipheriv("aes-256-gcm", derivedKey, nonce);
   const plaintext = Buffer.from(privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey, "hex");
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  plaintext.fill(0);
   const authTag = cipher.getAuthTag();
 
   derivedKey.fill(0);
@@ -85,8 +86,10 @@ export function decryptKey({ keystore, password }: DecryptKeyOptions): `0x${stri
       decipher.update(Buffer.from(ciphertext, "hex")),
       decipher.final(),
     ]);
+    const hex = decrypted.toString("hex");
+    decrypted.fill(0);
     derivedKey.fill(0);
-    return `0x${decrypted.toString("hex")}`;
+    return `0x${hex}` as `0x${string}`;
   } catch {
     derivedKey.fill(0);
     throw new Error("Decryption failed. Incorrect password or corrupted keystore.");
@@ -102,11 +105,15 @@ export function loadKeystore(path?: string): KeystoreFile {
     if (e?.code === "ENOENT") throw new Error(`Keystore not found at ${p}. Run 'inj-agent keys import' to create one.`);
     throw e;
   }
-  return JSON.parse(raw) as KeystoreFile;
+  const ks = JSON.parse(raw) as KeystoreFile;
+  if (ks?.version !== 1) throw new Error(`Unsupported keystore version: ${ks?.version}. Re-import your key.`);
+  return ks;
 }
 
 export function saveKeystore(keystore: KeystoreFile, path?: string): void {
   const p = path ?? DEFAULT_KEYSTORE_PATH;
-  mkdirSync(dirname(p), { recursive: true, mode: 0o700 });
+  const dir = dirname(p);
+  mkdirSync(dir, { recursive: true });
+  chmodSync(dir, 0o700);
   writeFileSync(p, JSON.stringify(keystore, null, 2), { mode: 0o600 });
 }

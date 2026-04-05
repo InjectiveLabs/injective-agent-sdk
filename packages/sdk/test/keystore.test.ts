@@ -13,7 +13,8 @@ describe("keystore", () => {
 
   it("wrong password throws", () => {
     const ks = encryptKey({ privateKey: "0x" + "ab".repeat(32) as `0x${string}`, password: "correct" });
-    expect(() => decryptKey({ keystore: ks, password: "wrong" })).toThrow();
+    expect(() => decryptKey({ keystore: ks, password: "wrong" }))
+      .toThrow("Decryption failed. Incorrect password or corrupted keystore.");
   });
 
   it("keystore has expected shape", () => {
