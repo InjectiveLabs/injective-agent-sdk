@@ -61,4 +61,16 @@ describe("validatePolicy", () => {
     expect(() => validatePolicy(policy, { contract: "0x1234" as `0x${string}`, wallet: "0xaaaa" as `0x${string}` }))
       .not.toThrow();
   });
+
+  it("empty allowedWallets blocks all wallets (secure default)", () => {
+    const policy = { allowedWallets: [] as `0x${string}`[] };
+    expect(() => validatePolicy(policy, { contract: "0x1234" as `0x${string}`, wallet: "0xaaaa" as `0x${string}` }))
+      .toThrow(PolicyViolationError);
+  });
+
+  it("empty allowedContracts blocks all contracts (secure default)", () => {
+    const policy = { allowedContracts: [] as `0x${string}`[] };
+    expect(() => validatePolicy(policy, { contract: "0xbbbb" as `0x${string}` }))
+      .toThrow(PolicyViolationError);
+  });
 });
