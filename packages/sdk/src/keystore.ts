@@ -34,15 +34,20 @@ export interface DecryptKeyOptions {
   password: string;
 }
 
+const SCRYPT_PARAMS = { n: 131072, r: 8, p: 1, dkLen: 32 } as const;
+
+function deriveKey(password: string, salt: Buffer, params: { n: number; r: number; p: number; dkLen: number }): Buffer {
+  return scryptSync(password, salt, params.dkLen, {
+    N: params.n, r: params.r, p: params.p,
+    maxmem: 128 * params.n * params.r * params.p + 1024 * 1024,
+  });
+}
+
 export function encryptKey({ privateKey, password }: EncryptKeyOptions): KeystoreFile {
   const salt = randomBytes(32);
   const nonce = randomBytes(12);
-  const kdfParams = { n: 131072, r: 8, p: 1, dkLen: 32 };
 
-  const derivedKey = scryptSync(password, salt, kdfParams.dkLen, {
-    N: kdfParams.n, r: kdfParams.r, p: kdfParams.p,
-    maxmem: 128 * kdfParams.n * kdfParams.r * kdfParams.p + 1024 * 1024,
-  });
+  const derivedKey = deriveKey(password, salt, SCRYPT_PARAMS);
 
   const cipher = createCipheriv("aes-256-gcm", derivedKey, nonce);
   const plaintext = Buffer.from(privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey, "hex");
@@ -58,7 +63,7 @@ export function encryptKey({ privateKey, password }: EncryptKeyOptions): Keystor
     version: 1,
     crypto: {
       kdf: "scrypt",
-      kdfParams: { ...kdfParams, salt: salt.toString("hex") },
+      kdfParams: { ...SCRYPT_PARAMS, salt: salt.toString("hex") },
       cipher: "aes-256-gcm",
       nonce: nonce.toString("hex"),
       ciphertext: ciphertext.toString("hex"),
@@ -74,10 +79,7 @@ export function decryptKey({ keystore, password }: DecryptKeyOptions): `0x${stri
   const { kdfParams, nonce, ciphertext, authTag } = keystore.crypto;
   const salt = Buffer.from(kdfParams.salt, "hex");
 
-  const derivedKey = scryptSync(password, salt, kdfParams.dkLen, {
-    N: kdfParams.n, r: kdfParams.r, p: kdfParams.p,
-    maxmem: 128 * kdfParams.n * kdfParams.r * kdfParams.p + 1024 * 1024,
-  });
+  const derivedKey = deriveKey(password, salt, kdfParams);
 
   try {
     const decipher = createDecipheriv("aes-256-gcm", derivedKey, Buffer.from(nonce, "hex"));

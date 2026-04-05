@@ -1,10 +1,10 @@
 import { Command } from "commander";
 import * as readline from "node:readline/promises";
-import { existsSync } from "node:fs";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import {
   encryptKey, decryptKey, loadKeystore, saveKeystore, DEFAULT_KEYSTORE_PATH,
 } from "@injective/agent-sdk";
+import { normalizeKey } from "../env.js";
 
 function createRl() {
   return readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -45,7 +45,7 @@ export function keysCommand(): Command {
         process.exit(1);
       }
 
-      const privateKey = (rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`) as `0x${string}`;
+      const privateKey = normalizeKey(rawKey);
       console.log("Encrypting key (this may take a moment)...");
       const ks = encryptKey({ privateKey, password });
       saveKeystore(ks, opts.path);
@@ -90,10 +90,6 @@ export function keysCommand(): Command {
     .description("Delete the keystore file")
     .option("--path <path>", "Keystore file path", DEFAULT_KEYSTORE_PATH)
     .action(async (opts) => {
-      if (!existsSync(opts.path)) {
-        console.log("No keystore found.");
-        return;
-      }
       const iface = createRl();
       const answer = await iface.question('Type "DELETE" to confirm: ');
       iface.close();
@@ -101,7 +97,12 @@ export function keysCommand(): Command {
         console.error("Confirmation failed.");
         process.exit(1);
       }
-      rmSync(opts.path);
+      try {
+        rmSync(opts.path);
+      } catch (e: any) {
+        if (e?.code === "ENOENT") { console.log("No keystore found."); return; }
+        throw e;
+      }
       console.log("Keystore deleted.");
     });
 

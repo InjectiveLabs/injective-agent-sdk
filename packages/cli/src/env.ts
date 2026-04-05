@@ -1,6 +1,5 @@
 import { AgentClient, AgentReadClient, PinataStorage, loadKeystore, decryptKey, DEFAULT_KEYSTORE_PATH } from "@injective/agent-sdk";
 import type { AgentClientCallbacks } from "@injective/agent-sdk";
-import { existsSync } from "node:fs";
 import * as readline from "node:readline/promises";
 
 export function normalizeKey(raw: string | undefined): `0x${string}` {
@@ -15,9 +14,8 @@ export function normalizeKey(raw: string | undefined): `0x${string}` {
  * Throws if no key source is available.
  */
 async function resolveSigningKey(): Promise<`0x${string}`> {
-  const keystorePath = process.env.INJ_KEYSTORE_PATH ?? DEFAULT_KEYSTORE_PATH;
-  if (existsSync(keystorePath)) {
-    const ks = loadKeystore(keystorePath);
+  try {
+    const ks = loadKeystore(process.env.INJ_KEYSTORE_PATH ?? DEFAULT_KEYSTORE_PATH);
     const envPw = process.env.INJ_KEYSTORE_PASSWORD;
     if (envPw !== undefined) {
       return decryptKey({ keystore: ks, password: envPw });
@@ -31,6 +29,9 @@ async function resolveSigningKey(): Promise<`0x${string}`> {
     const password = await iface.question(`Keystore password for ${ks.injAddress}: `);
     iface.close();
     return decryptKey({ keystore: ks, password });
+  } catch (e: any) {
+    // ENOENT means no keystore — fall through to legacy env var
+    if (!e?.message?.includes("Keystore not found")) throw e;
   }
 
   const rawEnvKey = process.env.INJ_PRIVATE_KEY;

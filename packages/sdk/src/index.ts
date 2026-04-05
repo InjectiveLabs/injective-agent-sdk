@@ -9,7 +9,6 @@ import { ValidationError } from "./errors.js";
 import type { AgentClientCallbacks } from "./types.js";
 
 export function createAgentClientFromEnv(callbacks?: AgentClientCallbacks): AgentClient {
-  // Keystore takes precedence over legacy env var (PRD §3.5, §8.1)
   const keystorePassword = process.env.INJ_KEYSTORE_PASSWORD;
   if (keystorePassword !== undefined) {
     return new AgentClient({
