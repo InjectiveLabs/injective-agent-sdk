@@ -10,16 +10,24 @@ import type { ServiceEntry, ServiceType } from "@injective/agent-sdk";
 import {
   formatRegisterResult, formatUpdateResult,
   formatDeregisterResult, formatStatusResult,
+  formatGiveFeedbackResult, formatRevokeFeedbackResult, formatFeedbackEntries,
 } from "./formatting.js";
-import { createClient as createClientBase, createReadClient } from "./env.js";
+import { createClient, createReadClient } from "./env.js";
+import { keysCommand } from "./commands/keys.js";
 import * as readline from "node:readline/promises";
 
 const cliCallbacks = { onProgress: (msg: string) => console.log(msg), onWarning: (msg: string) => console.warn(msg) };
-function createClient() { return createClientBase(cliCallbacks, "cli"); }
 
 function parseBigInt(value: string, label: string): bigint {
   if (!/^\d+$/.test(value)) {
     throw new Error(`Invalid ${label}: "${value}". Must be a non-negative integer.`);
+  }
+  return BigInt(value);
+}
+
+function parseSignedBigInt(value: string, label: string): bigint {
+  if (!/^-?\d+$/.test(value)) {
+    throw new Error(`Invalid ${label}: "${value}". Must be an integer.`);
   }
   return BigInt(value);
 }
@@ -85,7 +93,7 @@ program
   .option("--x402", "Enable x402 payment support")
   .action(async (opts) => {
     try {
-      const client = createClient();
+      const client = await createClient(cliCallbacks, "cli");
       const result = await client.register({
         name: opts.name,
         type: opts.type,
@@ -127,7 +135,7 @@ program
   .option("--x402", "Enable x402 payment support")
   .option("--no-x402", "Disable x402 payment support")
   .action(async (agentIdStr, opts) => {
-    const client = createClient();
+    const client = await createClient(cliCallbacks, "cli");
     const agentId = parseBigInt(agentIdStr, "agent ID");
     const updateOpts = {
       name: opts.name, description: opts.description, builderCode: opts.builderCode,
@@ -187,7 +195,7 @@ program
         }
       }
 
-      const client = createClient();
+      const client = await createClient(cliCallbacks, "cli");
       const result = await client.deregister(agentId, { dryRun: opts.dryRun });
       if (opts.json) {
         console.log(JSON.stringify(result, bigintReplacer, 2));
@@ -225,14 +233,6 @@ program
     } catch (error) {
       handleError(error);
     }
-  });
-
-program
-  .command("mcp")
-  .description("Start MCP tool server (stdio)")
-  .action(async () => {
-    const { startMcpServer } = await import("./mcp/server.js");
-    await startMcpServer();
   });
 
 // audit
@@ -278,5 +278,103 @@ program
       }
     }
   });
+
+// give-feedback
+program
+  .command("give-feedback <agentId>")
+  .description("Give feedback to an agent on-chain")
+  .requiredOption("--value <int>", "Feedback score (int128, can be negative)")
+  .option("--decimals <uint8>", "Value decimal places", "0")
+  .option("--tag1 <string>", "First tag for categorization")
+  .option("--tag2 <string>", "Second tag for categorization")
+  .option("--endpoint <string>", "Service endpoint that was evaluated")
+  .option("--feedback-uri <string>", "Off-chain evidence link")
+  .option("--feedback-hash <hex>", "Integrity hash of off-chain evidence (bytes32)")
+  .option("--gas-price <gwei>", "Gas price in gwei")
+  .option("--dry-run", "Simulate without broadcasting")
+  .option("--json", "Output result as JSON")
+  .action(async (agentIdStr, opts) => {
+    try {
+      const client = await createClient(cliCallbacks, "cli");
+      const result = await client.giveFeedback({
+        agentId: parseBigInt(agentIdStr, "agent ID"),
+        value: parseSignedBigInt(opts.value, "--value"),
+        valueDecimals: parseInt(opts.decimals, 10),
+        tag1: opts.tag1,
+        tag2: opts.tag2,
+        endpoint: opts.endpoint,
+        feedbackURI: opts.feedbackUri,
+        feedbackHash: opts.feedbackHash as `0x${string}` | undefined,
+        gasPrice: opts.gasPrice ? parseBigInt(opts.gasPrice, "--gas-price") : undefined,
+        dryRun: opts.dryRun,
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result, bigintReplacer, 2));
+      } else {
+        console.log(formatGiveFeedbackResult(result));
+      }
+    } catch (error) {
+      handleError(error);
+    }
+  });
+
+// revoke-feedback
+program
+  .command("revoke-feedback <agentId> <feedbackIndex>")
+  .description("Revoke previously given feedback")
+  .option("--gas-price <gwei>", "Gas price in gwei")
+  .option("--dry-run", "Simulate without broadcasting")
+  .option("--json", "Output result as JSON")
+  .action(async (agentIdStr, feedbackIndexStr, opts) => {
+    try {
+      const client = await createClient(cliCallbacks, "cli");
+      const result = await client.revokeFeedback({
+        agentId: parseBigInt(agentIdStr, "agent ID"),
+        feedbackIndex: parseBigInt(feedbackIndexStr, "feedback index"),
+        gasPrice: opts.gasPrice ? parseBigInt(opts.gasPrice, "--gas-price") : undefined,
+        dryRun: opts.dryRun,
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result, bigintReplacer, 2));
+      } else {
+        console.log(formatRevokeFeedbackResult(result));
+      }
+    } catch (error) {
+      handleError(error);
+    }
+  });
+
+// feedback (read)
+program
+  .command("feedback <agentId>")
+  .description("List feedback entries for an agent")
+  .option("--client <address>", "Filter by client address (repeatable)", (val: string, prev: string[]) => [...prev, val], [] as string[])
+  .option("--tag1 <string>", "Filter by first tag")
+  .option("--tag2 <string>", "Filter by second tag")
+  .option("--include-revoked", "Include revoked feedback entries")
+  .option("--json", "Output result as JSON")
+  .action(async (agentIdStr, opts) => {
+    try {
+      const readClient = createReadClient();
+      const entries = await readClient.getFeedbackEntries(
+        parseBigInt(agentIdStr, "agent ID"),
+        {
+          clientAddresses: opts.client.length > 0 ? opts.client as `0x${string}`[] : undefined,
+          tag1: opts.tag1,
+          tag2: opts.tag2,
+          includeRevoked: opts.includeRevoked,
+        },
+      );
+      if (opts.json) {
+        console.log(JSON.stringify(entries, bigintReplacer, 2));
+      } else {
+        console.log(formatFeedbackEntries(entries));
+      }
+    } catch (error) {
+      handleError(error);
+    }
+  });
+
+program.addCommand(keysCommand());
 
 program.parse(process.argv);
