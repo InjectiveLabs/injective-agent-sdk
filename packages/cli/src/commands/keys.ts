@@ -73,6 +73,10 @@ export function keysCommand(): Command {
     .description("Decrypt and print the private key hex")
     .option("--path <path>", "Keystore file path", DEFAULT_KEYSTORE_PATH)
     .action(async (opts) => {
+      if (!existsSync(opts.path)) {
+        console.error(`No keystore found at ${opts.path}. Run 'inj-agent keys import' to create one.`);
+        process.exit(1);
+      }
       const ks = loadKeystore(opts.path);
       const iface = createRl();
       const password = await iface.question("Enter password: ");

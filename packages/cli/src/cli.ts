@@ -135,7 +135,6 @@ program
   .option("--x402", "Enable x402 payment support")
   .option("--no-x402", "Disable x402 payment support")
   .action(async (agentIdStr, opts) => {
-    const client = await createClient(cliCallbacks, "cli");
     const agentId = parseBigInt(agentIdStr, "agent ID");
     const updateOpts = {
       name: opts.name, description: opts.description, builderCode: opts.builderCode,
@@ -145,6 +144,8 @@ program
       removeServices: opts.removeService.length > 0 ? opts.removeService : undefined,
       image: opts.image, x402: opts.x402,
     };
+    // createClient resolves key (may prompt); errors exit via handleError so client is always defined below
+    const client = await createClient(cliCallbacks, "cli").catch(handleError);
     try {
       const result = await client.update(agentId, updateOpts);
       if (opts.json) {
