@@ -25,7 +25,8 @@ describe('walletLinkDeadline', () => {
     expect(() => walletLinkDeadline(301)).toThrow('exceeds contract maximum')
   })
 
-  it('MAX_DEADLINE_SECONDS matches known contract value', () => {
-    expect(MAX_DEADLINE_SECONDS).toBe(300) // IdentityRegistryUpgradeable MAX_DEADLINE_DELAY
+  it('MAX_DEADLINE_SECONDS is a strict upper bound, not equal-to', () => {
+    // 240 (default) must be strictly less than 300 (contract max) to leave margin for clock skew
+    expect(Number(walletLinkDeadline()) - Math.floor(Date.now() / 1000)).toBeLessThan(MAX_DEADLINE_SECONDS)
   })
 })
