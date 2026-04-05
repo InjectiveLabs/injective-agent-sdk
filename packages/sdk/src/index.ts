@@ -9,6 +9,19 @@ import { ValidationError } from "./errors.js";
 import type { AgentClientCallbacks } from "./types.js";
 
 export function createAgentClientFromEnv(callbacks?: AgentClientCallbacks): AgentClient {
+  // Keystore takes precedence over legacy env var (PRD §3.5, §8.1)
+  const keystorePassword = process.env.INJ_KEYSTORE_PASSWORD;
+  if (keystorePassword !== undefined) {
+    return new AgentClient({
+      keystorePassword,
+      keystorePath: process.env.INJ_KEYSTORE_PATH,
+      network: (process.env.INJ_NETWORK ?? "testnet") as "testnet" | "mainnet",
+      rpcUrl: process.env.INJ_RPC_URL,
+      storage: process.env.PINATA_JWT ? new PinataStorage({ jwt: process.env.PINATA_JWT }) : undefined,
+      callbacks,
+    });
+  }
+
   const raw = process.env.INJ_PRIVATE_KEY;
   if (raw) {
     process.stderr.write(
@@ -24,20 +37,8 @@ export function createAgentClientFromEnv(callbacks?: AgentClientCallbacks): Agen
     });
   }
 
-  const keystorePassword = process.env.INJ_KEYSTORE_PASSWORD;
-  if (keystorePassword !== undefined) {
-    return new AgentClient({
-      keystorePassword,
-      keystorePath: process.env.INJ_KEYSTORE_PATH,
-      network: (process.env.INJ_NETWORK ?? "testnet") as "testnet" | "mainnet",
-      rpcUrl: process.env.INJ_RPC_URL,
-      storage: process.env.PINATA_JWT ? new PinataStorage({ jwt: process.env.PINATA_JWT }) : undefined,
-      callbacks,
-    });
-  }
-
   throw new ValidationError(
-    "No signing key found. Set INJ_PRIVATE_KEY or INJ_KEYSTORE_PASSWORD environment variable."
+    "No signing key found. Set INJ_KEYSTORE_PASSWORD (with keystore) or INJ_PRIVATE_KEY environment variable."
   );
 }
 

@@ -10,18 +10,11 @@ export function normalizeKey(raw: string | undefined): `0x${string}` {
 
 /**
  * Resolves the signing private key. Precedence:
- * 1. INJ_PRIVATE_KEY env var (legacy, deprecated — prints a warning)
- * 2. Keystore file: INJ_KEYSTORE_PASSWORD env var (non-interactive)
- * 3. Keystore file: interactive password prompt (TTY only)
+ * 1. Keystore file (INJ_KEYSTORE_PASSWORD env var for non-interactive; TTY prompt otherwise)
+ * 2. INJ_PRIVATE_KEY env var (legacy — prints deprecation warning)
  * Throws if no key source is available.
  */
 async function resolveSigningKey(): Promise<`0x${string}`> {
-  const rawEnvKey = process.env.INJ_PRIVATE_KEY;
-  if (rawEnvKey) {
-    console.warn("[warn] INJ_PRIVATE_KEY is deprecated. Run 'inj-agent keys import --env' to encrypt your key.");
-    return normalizeKey(rawEnvKey);
-  }
-
   const keystorePath = process.env.INJ_KEYSTORE_PATH ?? DEFAULT_KEYSTORE_PATH;
   if (existsSync(keystorePath)) {
     const ks = loadKeystore(keystorePath);
@@ -29,14 +22,25 @@ async function resolveSigningKey(): Promise<`0x${string}`> {
     if (envPw !== undefined) {
       return decryptKey({ keystore: ks, password: envPw });
     }
+    if (!process.stdin.isTTY) {
+      throw new Error(
+        "Keystore found but no password provided. Set INJ_KEYSTORE_PASSWORD for non-interactive use."
+      );
+    }
     const iface = readline.createInterface({ input: process.stdin, output: process.stdout });
     const password = await iface.question(`Keystore password for ${ks.injAddress}: `);
     iface.close();
     return decryptKey({ keystore: ks, password });
   }
 
+  const rawEnvKey = process.env.INJ_PRIVATE_KEY;
+  if (rawEnvKey) {
+    console.warn("[warn] INJ_PRIVATE_KEY is deprecated. Run 'inj-agent keys import --env' to encrypt your key.");
+    return normalizeKey(rawEnvKey);
+  }
+
   throw new Error(
-    "No signing key found. Set INJ_PRIVATE_KEY or run 'inj-agent keys import' to create an encrypted keystore."
+    "No signing key found. Run 'inj-agent keys import' to create an encrypted keystore, or set INJ_PRIVATE_KEY."
   );
 }
 
