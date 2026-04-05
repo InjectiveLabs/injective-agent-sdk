@@ -48,6 +48,17 @@ export function extractRevertName(error: BaseError): string | undefined {
   return revert instanceof ContractFunctionRevertedError ? revert.data?.errorName : undefined;
 }
 
+export class PolicyViolationError extends AgentSdkError {
+  readonly field: string;
+  readonly value: unknown;
+  constructor(message: string, field: string, value: unknown) {
+    super(message);
+    this.name = "PolicyViolationError";
+    this.field = field;
+    this.value = value;
+  }
+}
+
 export function formatContractError(error: unknown): ContractError {
   if (error instanceof BaseError) {
     const revert = error.walk((e) => e instanceof ContractFunctionRevertedError);
@@ -67,6 +78,11 @@ export function formatContractError(error: unknown): ContractError {
           return new ContractError("Invalid wallet signature. Ensure the wallet private key matches the provided wallet address.", name);
         case "SoulboundTransfer":
           return new ContractError("Agent identity tokens cannot be transferred.", name);
+        case "OwnableUnauthorizedAccount":
+          return new ContractError(
+            "Not authorized: only the original feedback provider can revoke this feedback.",
+            name
+          );
         default:
           return new ContractError(`Transaction reverted: ${name ?? "unknown error"}`, name);
       }

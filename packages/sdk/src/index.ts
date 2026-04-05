@@ -74,7 +74,11 @@ export { encryptKey, decryptKey, loadKeystore, saveKeystore, DEFAULT_KEYSTORE_PA
 export type { KeystoreFile, EncryptKeyOptions, DecryptKeyOptions } from "./keystore.js";
 
 // Errors
-export { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
+export { AgentSdkError, ContractError, PolicyViolationError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
+
+// Policy
+export { validatePolicy } from "./policy.js";
+export type { TransactionPolicy } from "./policy.js";
 
 // Formatting
 export { bigintReplacer } from "./formatting.js";
