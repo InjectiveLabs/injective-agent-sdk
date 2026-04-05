@@ -35,7 +35,7 @@ describe("AgentClient key resolution", () => {
         keystorePassword: "wrong",
         network: "testnet",
         audit: false,
-      })).toThrow();
+      })).toThrow("Decryption failed. Incorrect password or corrupted keystore.");
     } finally {
       rmSync(dir, { recursive: true });
     }

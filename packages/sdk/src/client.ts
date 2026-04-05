@@ -47,7 +47,7 @@ export class AgentClient {
     if (opts.privateKey) {
       rawKey = opts.privateKey;
     } else if (opts.keystorePassword !== undefined) {
-      const ks = loadKeystore(opts.keystorePath ?? DEFAULT_KEYSTORE_PATH);
+      const ks = loadKeystore(opts.keystorePath);
       rawKey = decryptKey({ keystore: ks, password: opts.keystorePassword });
     } else {
       throw new ValidationError(
