@@ -33,7 +33,7 @@ export { evmToInj, signWalletLink, resolveKey } from "./wallet.js";
 export type { ResolvedKey } from "./wallet.js";
 
 // Contract utilities
-export { identityTuple, encodeStringMetadata, decodeStringMetadata, walletLinkDeadline, IdentityRegistryABI, ReputationRegistryABI } from "./contracts.js";
+export { identityTuple, encodeStringMetadata, decodeStringMetadata, walletLinkDeadline, MAX_DEADLINE_SECONDS, IdentityRegistryABI, ReputationRegistryABI } from "./contracts.js";
 
 // Config
 export { resolveNetworkConfig, TESTNET, MAINNET } from "./config.js";
@@ -48,6 +48,10 @@ export type { SimulationResult } from "./simulate.js";
 // Audit logging
 export { AuditLogger, DEFAULT_AUDIT_LOG_PATH } from "./audit.js";
 export type { AuditEntry, AuditEvent, AuditLoggerConfig } from "./audit.js";
+
+// Keystore
+export { encryptKey, decryptKey, loadKeystore, saveKeystore, DEFAULT_KEYSTORE_PATH } from "./keystore.js";
+export type { KeystoreFile, EncryptKeyOptions, DecryptKeyOptions } from "./keystore.js";
 
 // Errors
 export { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
@@ -66,7 +70,10 @@ export type {
   GenerateCardOptions, CardUpdates, SignWalletLinkParams,
   DiscoverOptions, ListAgentsOptions, ListAgentsResult,
   ReputationResult, FeedbackEntry, EnrichedAgentResult,
+  GiveFeedbackOptions, GiveFeedbackResult,
+  RevokeFeedbackOptions, RevokeFeedbackResult,
+  FeedbackQueryOptions, ReputationQueryOptions,
 } from "./types.js";
 
 // Constants
-export { AGENT_TYPES, SERVICE_TYPES } from "./types.js";
+export { AGENT_TYPES, SERVICE_TYPES, AGENT_CARD_TYPE, AGENT_CARD_TYPE_ALT } from "./types.js";
