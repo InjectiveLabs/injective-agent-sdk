@@ -2,8 +2,10 @@ import type { NetworkConfig } from "./types.js";
 import { AgentSdkError } from "./errors.js";
 import { DEFAULT_IPFS_GATEWAY } from "./card.js";
 
-export const TESTNET: NetworkConfig = {
-  name: "testnet",
+/** Staging: Injective's own early deployment on testnet (chain 1439).
+ *  Original contract set with existing registered agents. */
+export const STAGING: NetworkConfig = {
+  name: "staging",
   chainId: 1439,
   rpcUrl: "https://testnet.sentry.chain.json-rpc.injective.network",
   identityRegistry: "0x19d1916ba1a2ac081b04893563a6ca0c92bc8c8e",
@@ -13,22 +15,37 @@ export const TESTNET: NetworkConfig = {
   deployBlock: 119354199n,
 };
 
-export const MAINNET: NetworkConfig = {
-  name: "mainnet",
-  chainId: 2525,
-  rpcUrl: "https://evm.injective.network",
-  identityRegistry: "0x0000000000000000000000000000000000000000",
-  reputationRegistry: "0x0000000000000000000000000000000000000000",
+/** Testnet: Canonical ERC-8004 contracts on Injective testnet (chain 1439). */
+export const TESTNET: NetworkConfig = {
+  name: "testnet",
+  chainId: 1439,
+  rpcUrl: "https://testnet.sentry.chain.json-rpc.injective.network",
+  identityRegistry: "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+  reputationRegistry: "0x8004B663056A597Dffe9eCcC1965A193B7388713",
   validationRegistry: "0x0000000000000000000000000000000000000000",
   ipfsGateway: DEFAULT_IPFS_GATEWAY,
   deployBlock: 0n,
 };
 
+/** Mainnet: Canonical ERC-8004 contracts on Injective mainnet (chain 2525). */
+export const MAINNET: NetworkConfig = {
+  name: "mainnet",
+  chainId: 2525,
+  rpcUrl: "https://evm.injective.network",
+  identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+  reputationRegistry: "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+  validationRegistry: "0x0000000000000000000000000000000000000000",
+  ipfsGateway: DEFAULT_IPFS_GATEWAY,
+  deployBlock: 0n,
+};
+
+const NETWORKS: Record<string, NetworkConfig> = { staging: STAGING, testnet: TESTNET, mainnet: MAINNET };
+
 export function resolveNetworkConfig(opts?: { network?: string; rpcUrl?: string }): NetworkConfig {
   const network = opts?.network ?? "testnet";
-  if (network === "mainnet") {
-    throw new AgentSdkError("Mainnet contracts are not yet deployed. Use network: 'testnet'.");
+  const base = NETWORKS[network];
+  if (!base) {
+    throw new AgentSdkError(`Unknown network: "${network}". Use "staging", "testnet", or "mainnet".`);
   }
-  const base = TESTNET;
   return opts?.rpcUrl ? { ...base, rpcUrl: opts.rpcUrl } : base;
 }

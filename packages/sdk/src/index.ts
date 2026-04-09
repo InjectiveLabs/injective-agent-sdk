@@ -14,7 +14,7 @@ export function createAgentClientFromEnv(callbacks?: AgentClientCallbacks): Agen
     return new AgentClient({
       keystorePassword,
       keystorePath: process.env.INJ_KEYSTORE_PATH,
-      network: (process.env.INJ_NETWORK ?? "testnet") as "testnet" | "mainnet",
+      network: (process.env.INJ_NETWORK ?? "testnet") as "staging" | "testnet" | "mainnet",
       rpcUrl: process.env.INJ_RPC_URL,
       storage: process.env.PINATA_JWT ? new PinataStorage({ jwt: process.env.PINATA_JWT }) : undefined,
       callbacks,
@@ -29,7 +29,7 @@ export function createAgentClientFromEnv(callbacks?: AgentClientCallbacks): Agen
     const privateKey = (raw.startsWith("0x") ? raw : `0x${raw}`) as `0x${string}`;
     return new AgentClient({
       privateKey,
-      network: (process.env.INJ_NETWORK ?? "testnet") as "testnet" | "mainnet",
+      network: (process.env.INJ_NETWORK ?? "testnet") as "staging" | "testnet" | "mainnet",
       rpcUrl: process.env.INJ_RPC_URL,
       storage: process.env.PINATA_JWT ? new PinataStorage({ jwt: process.env.PINATA_JWT }) : undefined,
       callbacks,
@@ -56,7 +56,7 @@ export type { ResolvedKey } from "./wallet.js";
 export { identityTuple, encodeStringMetadata, decodeStringMetadata, walletLinkDeadline, MAX_DEADLINE_SECONDS, IdentityRegistryABI, ReputationRegistryABI } from "./contracts.js";
 
 // Config
-export { resolveNetworkConfig, TESTNET, MAINNET } from "./config.js";
+export { resolveNetworkConfig, STAGING, TESTNET, MAINNET } from "./config.js";
 
 // Validation
 export { assertPublicUrl, validateStringField, VALIDATION_LIMITS } from "./validation.js";

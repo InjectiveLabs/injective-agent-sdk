@@ -177,7 +177,7 @@ export interface AgentClientConfig {
   privateKey?: `0x${string}`;           // now optional
   keystorePassword?: string;            // unlock keystore file
   keystorePath?: string;                // custom path (default: ~/.injective-agent/keystore.json)
-  network?: "testnet" | "mainnet";
+  network?: "staging" | "testnet" | "mainnet";
   rpcUrl?: string;
   storage?: StorageProvider;
   callbacks?: AgentClientCallbacks;
@@ -187,7 +187,7 @@ export interface AgentClientConfig {
 }
 
 export interface ReadClientConfig {
-  network?: "testnet" | "mainnet";
+  network?: "staging" | "testnet" | "mainnet";
   rpcUrl?: string;
 }
 
