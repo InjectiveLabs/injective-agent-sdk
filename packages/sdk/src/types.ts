@@ -143,7 +143,7 @@ export interface UpdateOptions {
   gasPrice?: bigint;
   dryRun?: boolean;
   services?: ServiceEntry[];
-  removeServices?: ServiceType[];
+  removeServices?: string[];
   image?: string;
   x402?: boolean;
   allowFreshCard?: boolean;
