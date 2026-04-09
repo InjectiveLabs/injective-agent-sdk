@@ -85,7 +85,7 @@ export { bigintReplacer } from "./formatting.js";
 
 // Types
 export type {
-  AgentType, ServiceType, ServiceEntry, AgentCard,
+  AgentType, ServiceType, ServiceName, ServiceEntry, Registration, AgentCard,
   ActionSchema, ActionParameter, ActionPrerequisite, ActionTransport,
   RegisterOptions, RegisterResult,
   UpdateOptions, UpdateResult,
@@ -101,4 +101,4 @@ export type {
 } from "./types.js";
 
 // Constants
-export { AGENT_TYPES, SERVICE_TYPES, AGENT_CARD_TYPE, AGENT_CARD_TYPE_ALT } from "./types.js";
+export { AGENT_TYPES, SERVICE_TYPES, AGENT_CARD_TYPE, AGENT_CARD_TYPE_ALT, LEGACY_SERVICE_NAME_MAP } from "./types.js";

@@ -6,7 +6,7 @@ export const SERVICE_TYPES: ServiceType[] = ["mcp", "a2a", "web", "oasf", "rest"
 
 export type ServiceName = "MCP" | "A2A" | "web" | "OASF" | "agentWallet" | "ENS" | "DID" | (string & {});
 
-export const LEGACY_SERVICE_NAME_MAP: Record<string, ServiceName> = {
+export const LEGACY_SERVICE_NAME_MAP: Record<ServiceType, ServiceName> = {
   mcp: "MCP", a2a: "A2A", oasf: "OASF", web: "web",
   rest: "web", grpc: "web", webhook: "web", custom: "web",
 };
@@ -22,7 +22,7 @@ export interface ServiceEntry {
 }
 
 export interface Registration {
-  agentId: number | null;
+  agentId: bigint | null;
   agentRegistry: string; // CAIP-10: eip155:{chainId}:{registryAddress}
 }
 
