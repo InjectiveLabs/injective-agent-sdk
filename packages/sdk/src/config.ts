@@ -24,7 +24,7 @@ export const TESTNET: NetworkConfig = {
   reputationRegistry: "0x8004B663056A597Dffe9eCcC1965A193B7388713",
   validationRegistry: "0x0000000000000000000000000000000000000000",
   ipfsGateway: DEFAULT_IPFS_GATEWAY,
-  deployBlock: 0n,
+  deployBlock: 120790000n,
 };
 
 /** Mainnet: Canonical ERC-8004 contracts on Injective mainnet (chain 2525). */
@@ -36,7 +36,7 @@ export const MAINNET: NetworkConfig = {
   reputationRegistry: "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
   validationRegistry: "0x0000000000000000000000000000000000000000",
   ipfsGateway: DEFAULT_IPFS_GATEWAY,
-  deployBlock: 0n,
+  deployBlock: 105000000n,
 };
 
 const NETWORKS: Record<string, NetworkConfig> = { staging: STAGING, testnet: TESTNET, mainnet: MAINNET };
