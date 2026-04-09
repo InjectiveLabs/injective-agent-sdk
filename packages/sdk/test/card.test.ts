@@ -36,6 +36,19 @@ describe("generateAgentCard", () => {
     expect(card.image).toBe("ipfs://QmTest123");
     expect(card.x402Support).toBe(true);
   });
+
+  it("generates card with 8004scan-compliant service fields (name/endpoint)", () => {
+    const card = generateAgentCard({
+      name: "Compliant", type: "trading", builderCode: "acme",
+      operatorAddress: "0x1234567890123456789012345678901234567890",
+      services: [{ name: "MCP", endpoint: "https://agent.dev/mcp" }],
+      chainId: 1439,
+    });
+    expect(card.services[0].name).toBe("MCP");
+    expect(card.services[0].endpoint).toBe("https://agent.dev/mcp");
+    expect((card.services[0] as any).type).toBeUndefined();
+    expect((card.services[0] as any).url).toBeUndefined();
+  });
 });
 
 describe("mergeAgentCard", () => {
