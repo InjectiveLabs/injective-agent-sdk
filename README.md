@@ -2,7 +2,7 @@
 
 TypeScript SDK and CLI for managing on-chain AI agent identities on the [Injective](https://injective.com) blockchain.
 
-Register, update, query, and burn [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity NFTs — from code, from the terminal, or via MCP tools.
+Register, update, query, and burn [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity NFTs — from code or from the terminal.
 
 ## What is ERC-8004?
 
@@ -21,7 +21,7 @@ Agents registered on Injective are visible on [8004scan](https://8004scan.io) an
 # SDK — for programmatic use in your agent code
 npm install @injective/agent-sdk
 
-# CLI — for terminal use and MCP server
+# CLI — for terminal use
 npm install -g injective-agent-cli
 ```
 
@@ -77,20 +77,13 @@ inj-agent register \
   --x402
 ```
 
-### From an AI Agent (MCP)
+### For MCP Users
 
-```json
-{
-  "mcpServers": {
-    "inj-agent": {
-      "command": "inj-agent",
-      "args": ["mcp"]
-    }
-  }
-}
+For MCP tool access to Injective, use [`InjectiveLabs/mcp-server`](https://github.com/InjectiveLabs/mcp-server) — a unified MCP with trading + identity tools.
+
+```bash
+claude mcp add injective -- node /path/to/mcp-server/dist/mcp/server.js
 ```
-
-The MCP server exposes `agent_register`, `agent_update`, `agent_deregister`, and `agent_status` tools.
 
 ## Table of Contents
 
@@ -106,7 +99,6 @@ The MCP server exposes `agent_register`, `agent_update`, `agent_deregister`, and
   - [update](#update)
   - [deregister](#deregister)
   - [status](#status)
-  - [mcp](#mcp-server)
 - [Configuration](#configuration)
 - [Agent Card Schema](#agent-card-schema)
 - [Network & Contracts](#network--contracts)
@@ -393,19 +385,6 @@ Burns the NFT permanently. Without `--force`, prompts for confirmation by name.
 inj-agent status <agentId> [--json]
 ```
 
-### MCP Server
-
-```bash
-inj-agent mcp
-```
-
-| Tool | Description |
-|------|-------------|
-| `agent_register` | Register a new agent identity |
-| `agent_update` | Update agent metadata |
-| `agent_deregister` | Burn an agent (requires `confirm: true`) |
-| `agent_status` | Query agent details |
-
 ## Configuration
 
 | Variable | Required | Default | Description |
@@ -434,7 +413,7 @@ Every registered agent has a JSON card hosted on IPFS conforming to the ERC-8004
   "x402Support": true,
   "metadata": {
     "chain": "injective",
-    "chainId": "1776",
+    "chainId": "1439",
     "agentType": "trading",
     "builderCode": "acme-corp",
     "operatorAddress": "0x..."
@@ -444,7 +423,7 @@ Every registered agent has a JSON card hosted on IPFS conforming to the ERC-8004
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `services[].type` | `mcp` `a2a` `web` `oasf` | Protocol type |
+| `services[].type` | `mcp` `a2a` `web` `oasf` `rest` `grpc` `webhook` `custom` | Protocol type |
 | `image` | string | Avatar URL or `""` |
 | `x402Support` | boolean | x402 payment protocol support |
 
@@ -469,7 +448,7 @@ Mainnet contracts are not yet deployed.
 
 ### Service Types
 
-`mcp` | `a2a` | `web` | `oasf`
+`mcp` | `a2a` | `web` | `oasf` | `rest` | `grpc` | `webhook` | `custom`
 
 ## Architecture
 
@@ -496,12 +475,9 @@ packages/
       cli.ts                    Commander entry point
       formatting.ts             Human-readable output
       env.ts                    Environment variable helpers
-      mcp/
-        server.ts               MCP stdio server
-        tools.ts                MCP tool definitions (Zod schemas)
 ```
 
-The CLI and MCP server are thin wrappers over the SDK. All business logic lives in `@injective/agent-sdk`.
+The CLI is a thin wrapper over the SDK. All business logic lives in `@injective/agent-sdk`.
 
 ## Development
 
@@ -538,7 +514,6 @@ cd packages/cli && pnpm dev register --help
 - Private keys are never logged, serialized, or included in any result object.
 - Service URLs are validated against private/internal addresses (SSRF protection).
 - Fetched IPFS cards are schema-validated before use (no prototype pollution).
-- MCP `agent_deregister` requires explicit `confirm: true` parameter.
 
 ## License
 

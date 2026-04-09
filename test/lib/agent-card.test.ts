@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateAgentCard, mergeAgentCard } from "../../src/lib/agent-card.js";
+import { AGENT_CARD_TYPE } from "../../src/types/index.js";
 import type { AgentCard } from "../../src/types/index.js";
 
 describe("generateAgentCard", () => {
@@ -10,12 +11,13 @@ describe("generateAgentCard", () => {
       description: "A test agent",
       builderCode: "test-builder",
       operatorAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      chainId: 1439,
     });
-    expect(card.type).toBe("https://eips.ethereum.org/EIPS/eip-8004#registration-v1");
+    expect(card.type).toBe(AGENT_CARD_TYPE);
     expect(card.name).toBe("TestAgent");
     expect(card.description).toBe("A test agent");
     expect(card.metadata.chain).toBe("injective");
-    expect(card.metadata.chainId).toBe("1776");
+    expect(card.metadata.chainId).toBe("1439");
     expect(card.metadata.agentType).toBe("trading");
     expect(card.metadata.builderCode).toBe("test-builder");
   });
@@ -66,14 +68,14 @@ describe("generateAgentCard", () => {
 
 describe("mergeAgentCard", () => {
   const baseCard: AgentCard = {
-    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    type: AGENT_CARD_TYPE,
     name: "Original",
     description: "Original description",
     services: [{ type: "mcp", url: "https://old.io/mcp" }],
     image: "ipfs://OldImage",
     x402Support: false,
     metadata: {
-      chain: "injective", chainId: "1776",
+      chain: "injective", chainId: "1439",
       agentType: "trading", builderCode: "builder", operatorAddress: "0x123",
     },
   };

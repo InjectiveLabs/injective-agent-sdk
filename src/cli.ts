@@ -219,12 +219,4 @@ program
     }
   });
 
-program
-  .command("mcp")
-  .description("Start MCP tool server (stdio)")
-  .action(async () => {
-    const { startMcpServer } = await import("./mcp/server.js");
-    await startMcpServer();
-  });
-
 program.parse(process.argv);

@@ -1,17 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { uploadAgentCard, resolveImageUri } from "../../src/lib/ipfs.js";
 import { CliError } from "../../src/lib/errors.js";
+import { AGENT_CARD_TYPE } from "../../src/types/index.js";
 import type { AgentCard } from "../../src/types/index.js";
 
 const mockCard: AgentCard = {
-  type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  type: AGENT_CARD_TYPE,
   name: "Test Agent",
   services: [],
   image: "",
   x402Support: false,
   metadata: {
     chain: "injective",
-    chainId: "1776",
+    chainId: "1439",
     agentType: "trading",
     builderCode: "test-builder",
     operatorAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",

@@ -1,5 +1,5 @@
 import type { AgentCard, AgentType, ServiceEntry, ServiceType } from "../types/index.js";
-import { SERVICE_TYPES } from "../types/index.js";
+import { AGENT_CARD_TYPE } from "../types/index.js";
 import { assertPublicUrl } from "./url.js";
 import { CliError } from "./errors.js";
 
@@ -12,18 +12,19 @@ interface GenerateOptions {
   services?: ServiceEntry[];
   image?: string;
   x402?: boolean;
+  chainId?: number | string;
 }
 
 export function generateAgentCard(opts: GenerateOptions): AgentCard {
   const card: AgentCard = {
-    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    type: AGENT_CARD_TYPE,
     name: opts.name,
     services: opts.services ?? [],
     image: opts.image ?? "",
     x402Support: opts.x402 ?? false,
     metadata: {
       chain: "injective",
-      chainId: "1776",
+      chainId: String(opts.chainId ?? "unknown"),
       agentType: opts.type,
       builderCode: opts.builderCode,
       operatorAddress: opts.operatorAddress,
@@ -97,7 +98,7 @@ export async function warnIfUnreachable(url: string): Promise<void> {
 function validateServiceEntry(raw: unknown): ServiceEntry | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
-  if (typeof obj.type !== "string" || !SERVICE_TYPES.includes(obj.type as ServiceType)) return null;
+  if (typeof obj.type !== "string") return null;
   if (typeof obj.url !== "string") return null;
   const entry: ServiceEntry = { type: obj.type as ServiceType, url: obj.url };
   if (typeof obj.description === "string") entry.description = obj.description;
@@ -116,7 +117,7 @@ function validateFetchedCard(raw: unknown): AgentCard {
     ? obj.metadata as Record<string, unknown>
     : null;
   return {
-    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    type: typeof obj.type === "string" ? obj.type : AGENT_CARD_TYPE,
     name: obj.name,
     description: typeof obj.description === "string" ? obj.description : undefined,
     services: Array.isArray(obj.services)
@@ -127,12 +128,12 @@ function validateFetchedCard(raw: unknown): AgentCard {
     metadata: meta
       ? {
           chain: "injective",
-          chainId: "1776",
+          chainId: typeof meta.chainId === "string" ? meta.chainId : "unknown",
           agentType: (typeof meta.agentType === "string" ? meta.agentType : "other") as AgentType,
           builderCode: typeof meta.builderCode === "string" ? meta.builderCode : "",
           operatorAddress: typeof meta.operatorAddress === "string" ? meta.operatorAddress : "",
         }
-      : { chain: "injective", chainId: "1776", agentType: "other" as AgentType, builderCode: "", operatorAddress: "" },
+      : { chain: "injective", chainId: "unknown", agentType: "other" as AgentType, builderCode: "", operatorAddress: "" },
   };
 }
 

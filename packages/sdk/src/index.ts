@@ -46,7 +46,7 @@ export { PinataStorage } from "./storage/pinata.js";
 export { CustomUrlStorage } from "./storage/custom-url.js";
 
 // Agent card utilities
-export { generateAgentCard, mergeAgentCard, fetchAgentCard, validateFetchedCard, checkServiceReachability, validateServiceEntry } from "./card.js";
+export { generateAgentCard, mergeAgentCard, fetchAgentCard, validateFetchedCard, checkServiceReachability, validateServiceEntry, DEFAULT_IPFS_GATEWAY } from "./card.js";
 
 // Wallet utilities
 export { evmToInj, signWalletLink, resolveKey } from "./wallet.js";
@@ -59,7 +59,7 @@ export { identityTuple, encodeStringMetadata, decodeStringMetadata, walletLinkDe
 export { resolveNetworkConfig, TESTNET, MAINNET } from "./config.js";
 
 // Validation
-export { assertPublicUrl } from "./validation.js";
+export { assertPublicUrl, validateStringField, VALIDATION_LIMITS } from "./validation.js";
 
 // Simulation
 export { simulateAndWrite, simulateOnly } from "./simulate.js";
@@ -86,6 +86,7 @@ export { bigintReplacer } from "./formatting.js";
 // Types
 export type {
   AgentType, ServiceType, ServiceEntry, AgentCard,
+  ActionSchema, ActionParameter, ActionPrerequisite, ActionTransport,
   RegisterOptions, RegisterResult,
   UpdateOptions, UpdateResult,
   DeregisterOptions, DeregisterResult, StatusResult,

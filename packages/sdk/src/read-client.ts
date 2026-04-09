@@ -2,6 +2,7 @@ import type {
   ReadClientConfig, StatusResult, AgentCard, NetworkConfig,
   DiscoverOptions, ListAgentsOptions, ListAgentsResult,
   ReputationResult, FeedbackEntry, EnrichedAgentResult,
+  FeedbackQueryOptions, ReputationQueryOptions,
 } from "./types.js";
 import { resolveNetworkConfig } from "./config.js";
 import { createReadOnlyClients, decodeStringMetadata, identityTuple, ReputationRegistryABI } from "./contracts.js";
@@ -37,23 +38,32 @@ export class AgentReadClient {
 
   // ─── Single Agent ──────────────────────────────────────────────────
 
+  private async getContractData(agentId: bigint) {
+    const contractArgs = { address: this.config.identityRegistry, abi: this.identityRegistry.abi } as const;
+
+    const [owner, tokenUri, wallet, builderCodeRaw, typeRaw] = await Promise.all([
+      this.publicClient.readContract({ ...contractArgs, functionName: "ownerOf", args: [agentId] }) as Promise<`0x${string}`>,
+      this.publicClient.readContract({ ...contractArgs, functionName: "tokenURI", args: [agentId] }) as Promise<string>,
+      this.publicClient.readContract({ ...contractArgs, functionName: "getAgentWallet", args: [agentId] }) as Promise<`0x${string}`>,
+      this.publicClient.readContract({ ...contractArgs, functionName: "getMetadata", args: [agentId, "builderCode"] }) as Promise<`0x${string}`>,
+      this.publicClient.readContract({ ...contractArgs, functionName: "getMetadata", args: [agentId, "agentType"] }) as Promise<`0x${string}`>,
+    ]);
+
+    return {
+      owner, tokenUri, wallet,
+      builderCode: decodeStringMetadata(builderCodeRaw),
+      agentType: decodeStringMetadata(typeRaw),
+    };
+  }
+
   async getStatus(agentId: bigint): Promise<StatusResult> {
     try {
-      const contractArgs = { address: this.config.identityRegistry, abi: this.identityRegistry.abi } as const;
-
-      const [owner, tokenUri, wallet, builderCodeRaw, typeRaw] = await Promise.all([
-        this.publicClient.readContract({ ...contractArgs, functionName: "ownerOf", args: [agentId] }) as Promise<`0x${string}`>,
-        this.publicClient.readContract({ ...contractArgs, functionName: "tokenURI", args: [agentId] }) as Promise<string>,
-        this.publicClient.readContract({ ...contractArgs, functionName: "getAgentWallet", args: [agentId] }) as Promise<`0x${string}`>,
-        this.publicClient.readContract({ ...contractArgs, functionName: "getMetadata", args: [agentId, "builderCode"] }) as Promise<`0x${string}`>,
-        this.publicClient.readContract({ ...contractArgs, functionName: "getMetadata", args: [agentId, "agentType"] }) as Promise<`0x${string}`>,
-      ]);
-
-      const builderCode = decodeStringMetadata(builderCodeRaw);
-      const agentType = decodeStringMetadata(typeRaw);
+      const { owner, tokenUri, wallet, builderCode, agentType } = await this.getContractData(agentId);
 
       let name = `Agent ${agentId}`;
-      try { const card = await fetchAgentCard(tokenUri, this.config.ipfsGateway); name = card.name; } catch {}
+      try { const card = await fetchAgentCard(tokenUri, this.config.ipfsGateway); name = card.name; } catch (err) {
+        console.warn(`[AgentSDK] Failed to fetch card for agent ${agentId}:`, err instanceof Error ? err.message : String(err));
+      }
 
       return {
         agentId, name, type: agentType, owner, wallet, builderCode, tokenUri,
@@ -228,35 +238,37 @@ export class AgentReadClient {
 
   // ─── Reputation ────────────────────────────────────────────────────
 
-  async getReputation(agentId: bigint): Promise<ReputationResult> {
-    const entries = await this.getFeedbackEntries(agentId);
-    const active = entries.filter(e => !e.revoked);
+  async getReputation(agentId: bigint, opts?: ReputationQueryOptions): Promise<ReputationResult> {
+    const [clients, entries] = await Promise.all([
+      this.getClients(agentId),
+      this.getFeedbackEntries(agentId, opts),
+    ]);
 
-    if (active.length === 0) return { score: 0, count: 0 };
+    const active = entries.filter(e => !e.revoked);
+    if (active.length === 0) return { score: 0, count: 0, clients };
 
     const total = active.reduce((sum, e) => sum + Number(e.value) / Math.pow(10, e.decimals), 0);
-    const avg = total / active.length;
-    // Round to 2 decimal places (values are typically 0-100 after decimal normalization)
-    const score = Math.round(avg * 100) / 100;
+    const score = Math.round((total / active.length) * 100) / 100;
 
-    return { score, count: active.length };
+    return { score, count: active.length, clients };
   }
 
-  async getFeedbackEntries(agentId: bigint): Promise<FeedbackEntry[]> {
+  async getFeedbackEntries(agentId: bigint, opts?: FeedbackQueryOptions): Promise<FeedbackEntry[]> {
     const repArgs = { address: this.config.reputationRegistry, abi: ReputationRegistryABI } as const;
 
     const result = await this.publicClient.readContract({
       ...repArgs,
       functionName: "readAllFeedback",
-      args: [agentId, [], "", "", false],
+      args: [agentId, opts?.clientAddresses ?? [], opts?.tag1 ?? "", opts?.tag2 ?? "", opts?.includeRevoked ?? false],
     }) as [
       `0x${string}`[], bigint[], bigint[], number[], string[], string[], boolean[],
     ];
 
-    const [clients, , values, valueDecimals, tag1s, tag2s, revokedStatuses] = result;
+    const [clients, feedbackIndexes, values, valueDecimals, tag1s, tag2s, revokedStatuses] = result;
 
     return clients.map((client, i) => ({
       client,
+      feedbackIndex: feedbackIndexes[i],
       value: values[i],
       decimals: Number(valueDecimals[i]),
       tags: [tag1s[i], tag2s[i]] as [string, string],
@@ -264,18 +276,42 @@ export class AgentReadClient {
     }));
   }
 
+  async getClients(agentId: bigint): Promise<`0x${string}`[]> {
+    return await this.publicClient.readContract({
+      address: this.config.reputationRegistry,
+      abi: ReputationRegistryABI,
+      functionName: "getClients",
+      args: [agentId],
+    }) as `0x${string}`[];
+  }
+
   // ─── Enriched ──────────────────────────────────────────────────────
 
   async getEnrichedAgent(agentId: bigint): Promise<EnrichedAgentResult> {
-    const [status, reputation] = await Promise.all([
-      this.getStatus(agentId),
+    let contractData;
+    try {
+      contractData = await this.getContractData(agentId);
+    } catch (error) {
+      if (error instanceof AgentSdkError) throw error;
+      throw formatContractError(error);
+    }
+
+    const [card, reputation] = await Promise.all([
+      fetchAgentCard(contractData.tokenUri, this.config.ipfsGateway).catch((err) => {
+        console.warn(`[AgentSDK] Failed to fetch card for agent ${agentId}:`, err instanceof Error ? err.message : String(err));
+        return null;
+      }),
       this.getReputation(agentId),
     ]);
 
-    let card: AgentCard | null = null;
-    try { card = await fetchAgentCard(status.tokenUri, this.config.ipfsGateway); } catch {}
-
-    return { ...status, reputation, card };
+    return {
+      agentId, name: card?.name ?? `Agent ${agentId}`,
+      type: contractData.agentType, owner: contractData.owner,
+      wallet: contractData.wallet, builderCode: contractData.builderCode,
+      tokenUri: contractData.tokenUri,
+      identityTuple: identityTuple(this.config, agentId),
+      reputation, card,
+    };
   }
 
   // ─── Event Watching ────────────────────────────────────────────────

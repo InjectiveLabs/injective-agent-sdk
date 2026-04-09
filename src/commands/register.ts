@@ -34,6 +34,7 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
     name: opts.name, type: opts.type, description: opts.description,
     builderCode: opts.builderCode, operatorAddress: key.address,
     services: opts.services, image: resolvedImage, x402: opts.x402,
+    chainId: config.chainId,
   });
 
   let cardUri: string;

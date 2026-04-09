@@ -13,6 +13,68 @@ export interface ServiceEntry {
   description?: string;
 }
 
+/**
+ * Describes a single callable operation on an agent.
+ * Included in the IPFS agent card so LLMs and other agents
+ * can construct valid requests without external documentation.
+ */
+export interface ActionParameter {
+  type: "string" | "integer" | "number" | "boolean" | "array" | "object";
+  description?: string;
+  required?: boolean;
+  format?: string;
+  enum?: string[];
+  default?: string | number | boolean;
+  minimum?: number;
+  maximum?: number;
+  pattern?: string;
+  items?: ActionParameter;
+  properties?: Record<string, ActionParameter>;
+  /** Fixed value — parameter must be exactly this. */
+  const?: string | number | boolean;
+}
+
+export interface ActionPrerequisite {
+  type: "authz_grant" | "token_approval" | "deposit" | "custom";
+  description?: string;
+  /** For authz_grant: the grantee contract/address. */
+  grantee?: string;
+  /** For authz_grant: the Cosmos message types to grant. */
+  msg_types?: string[];
+  /** For token_approval: the spender address. */
+  spender?: string;
+  /** For token_approval: the token contract. */
+  token?: string;
+}
+
+export type ActionTransport =
+  | "cosmwasm_execute"
+  | "cosmwasm_query"
+  | "evm_call"
+  | "evm_send"
+  | "rest"
+  | "grpc"
+  | "mcp_tool";
+
+export interface ActionSchema {
+  name: string;
+  description: string;
+  transport: ActionTransport;
+  /** Contract or endpoint address for this action. */
+  contract?: string;
+  /** URL for REST/gRPC/MCP transports. */
+  url?: string;
+  prerequisites?: ActionPrerequisite[];
+  parameters: Record<string, ActionParameter>;
+  /** Funds/tokens to attach (for CosmWasm execute). */
+  funds?: {
+    denom: string;
+    description?: string;
+  };
+  /** A complete working example of this action. */
+  example?: Record<string, unknown>;
+}
+
 export interface AgentCard {
   type: string;
   name: string;
@@ -20,6 +82,8 @@ export interface AgentCard {
   services: ServiceEntry[];
   image: string;
   x402Support: boolean;
+  /** Machine-readable callable operations. LLMs read this to interact with the agent. */
+  actions?: ActionSchema[];
   metadata: {
     chain: "injective";
     chainId: string;
@@ -41,6 +105,7 @@ export interface RegisterOptions {
   services?: ServiceEntry[];
   image?: string;
   x402?: boolean;
+  actions?: ActionSchema[];
 }
 
 export interface RegisterResult {
@@ -146,6 +211,7 @@ export interface GenerateCardOptions {
   image?: string;
   x402?: boolean;
   chainId?: number | string;
+  actions?: ActionSchema[];
 }
 
 export interface CardUpdates {
@@ -155,6 +221,7 @@ export interface CardUpdates {
   removeServices?: ServiceType[];
   image?: string;
   x402?: boolean;
+  actions?: ActionSchema[];
 }
 
 // Discovery & listing

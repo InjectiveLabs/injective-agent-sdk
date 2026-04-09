@@ -255,6 +255,23 @@ describe("AuditLogger.sanitizeArgs", () => {
     expect(result).toEqual({ agentId: "5", uri: "ipfs://new-uri" });
   });
 
+  it("sanitizes giveFeedback args — no feedbackURI or feedbackHash", () => {
+    const result = AuditLogger.sanitizeArgs("giveFeedback", [
+      42n, 85n, 0, "data-quality", "latency", "https://api.example.com", "ipfs://evidence", "0xdeadbeef",
+    ]);
+    expect(result).toEqual({
+      agentId: "42", value: "85", valueDecimals: 0,
+      tag1: "data-quality", tag2: "latency", endpoint: "https://api.example.com",
+    });
+    expect(result).not.toHaveProperty("feedbackURI");
+    expect(result).not.toHaveProperty("feedbackHash");
+  });
+
+  it("sanitizes revokeFeedback args", () => {
+    const result = AuditLogger.sanitizeArgs("revokeFeedback", [42n, 3n]);
+    expect(result).toEqual({ agentId: "42", feedbackIndex: "3" });
+  });
+
   it("returns argCount for unknown methods", () => {
     const result = AuditLogger.sanitizeArgs("unknownMethod", [1, 2, 3]);
     expect(result).toEqual({ argCount: 3 });

@@ -1,18 +1,18 @@
-import type { AgentCard, AgentType, ServiceEntry, ServiceType, GenerateCardOptions, CardUpdates } from "./types.js";
-import { SERVICE_TYPES } from "./types.js";
+import type { AgentCard, AgentType, ActionSchema, ServiceEntry, ServiceType, GenerateCardOptions, CardUpdates } from "./types.js";
+import { AGENT_CARD_TYPE } from "./types.js";
 import { assertPublicUrl } from "./validation.js";
 import { ValidationError } from "./errors.js";
 
 export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
   const card: AgentCard = {
-    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    type: AGENT_CARD_TYPE,
     name: opts.name,
     services: opts.services ?? [],
     image: opts.image ?? "",
     x402Support: opts.x402 ?? false,
     metadata: {
       chain: "injective",
-      chainId: "1776",
+      chainId: String(opts.chainId ?? "unknown"),
       agentType: opts.type,
       builderCode: opts.builderCode,
       operatorAddress: opts.operatorAddress,
@@ -20,6 +20,9 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
   };
   if (opts.description) {
     card.description = opts.description;
+  }
+  if (opts.actions && opts.actions.length > 0) {
+    card.actions = opts.actions;
   }
   return card;
 }
@@ -54,8 +57,14 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
     card.services = card.services.filter(s => !updates.removeServices!.includes(s.type));
   }
 
+  if (updates.actions !== undefined) {
+    card.actions = updates.actions.length > 0 ? updates.actions : undefined;
+  }
+
   return card;
 }
+
+const FETCH_TIMEOUT = 5000;
 
 export async function checkServiceReachability(url: string): Promise<string | null> {
   try {
@@ -65,7 +74,7 @@ export async function checkServiceReachability(url: string): Promise<string | nu
     throw err;
   }
   try {
-    const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
+    const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(FETCH_TIMEOUT) });
     if (!res.ok) return `Service URL ${url} returned ${res.status}. Registration will proceed.`;
     return null;
   } catch {
@@ -76,7 +85,7 @@ export async function checkServiceReachability(url: string): Promise<string | nu
 export function validateServiceEntry(raw: unknown): ServiceEntry | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
-  if (typeof obj.type !== "string" || !SERVICE_TYPES.includes(obj.type as ServiceType)) return null;
+  if (typeof obj.type !== "string") return null;
   if (typeof obj.url !== "string") return null;
   const entry: ServiceEntry = { type: obj.type as ServiceType, url: obj.url };
   if (typeof obj.description === "string") entry.description = obj.description;
@@ -94,8 +103,8 @@ export function validateFetchedCard(raw: unknown): AgentCard {
   const meta = typeof obj.metadata === "object" && obj.metadata !== null
     ? obj.metadata as Record<string, unknown>
     : null;
-  return {
-    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  const card: AgentCard = {
+    type: typeof obj.type === "string" ? obj.type : AGENT_CARD_TYPE,
     name: obj.name,
     description: typeof obj.description === "string" ? obj.description : undefined,
     services: Array.isArray(obj.services)
@@ -106,28 +115,51 @@ export function validateFetchedCard(raw: unknown): AgentCard {
     metadata: meta
       ? {
           chain: "injective",
-          chainId: "1776",
+          chainId: typeof meta.chainId === "string" ? meta.chainId : "unknown",
           agentType: (typeof meta.agentType === "string" ? meta.agentType : "other") as AgentType,
           builderCode: typeof meta.builderCode === "string" ? meta.builderCode : "",
           operatorAddress: typeof meta.operatorAddress === "string" ? meta.operatorAddress : "",
         }
-      : { chain: "injective", chainId: "1776", agentType: "other" as AgentType, builderCode: "", operatorAddress: "" },
+      : { chain: "injective", chainId: "unknown", agentType: "other" as AgentType, builderCode: "", operatorAddress: "" },
   };
+  if (Array.isArray(obj.actions) && obj.actions.length > 0) {
+    card.actions = obj.actions as ActionSchema[];
+  }
+  return card;
 }
 
-export async function fetchAgentCard(uri: string, ipfsGateway = "https://w3s.link/ipfs/"): Promise<AgentCard> {
-  let url: string;
-  if (uri.startsWith("ipfs://")) {
-    url = `${ipfsGateway}${uri.slice(7)}`;
-  } else {
+export const DEFAULT_IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
+
+const IPFS_FALLBACK_GATEWAYS = [
+  "https://ipfs.io/ipfs/",
+  "https://cloudflare-ipfs.com/ipfs/",
+];
+
+export async function fetchAgentCard(uri: string, ipfsGateway = DEFAULT_IPFS_GATEWAY): Promise<AgentCard> {
+  if (!uri.startsWith("ipfs://")) {
     const parsed = new URL(uri);
     if (!["https:", "http:"].includes(parsed.protocol)) {
       throw new Error(`Unsupported URI scheme: ${parsed.protocol}. Only https, http, and ipfs are allowed.`);
     }
-    url = uri;
+    const res = await fetch(uri, { signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+    if (!res.ok) throw new Error(`Failed to fetch agent card from ${uri}: ${res.status}`);
+    return validateFetchedCard(await res.json());
   }
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch agent card from ${url}: ${res.status}`);
-  const raw = await res.json();
-  return validateFetchedCard(raw);
+
+  const cid = uri.slice(7);
+  const gateways = [ipfsGateway, ...IPFS_FALLBACK_GATEWAYS.filter(g => g !== ipfsGateway)];
+  let lastError: Error | undefined;
+
+  for (const gateway of gateways) {
+    const url = `${gateway}${cid}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return validateFetchedCard(await res.json());
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw new Error(`Failed to fetch agent card from all IPFS gateways for ${uri}: ${lastError?.message}`);
 }

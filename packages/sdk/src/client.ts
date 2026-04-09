@@ -14,6 +14,7 @@ import { AgentSdkError, ContractError, SimulationError, StorageError, Validation
 import { loadKeystore, decryptKey, DEFAULT_KEYSTORE_PATH } from "./keystore.js";
 import { simulateOnly } from "./simulate.js";
 import { AuditLogger } from "./audit.js";
+import { validateStringField, VALIDATION_LIMITS } from "./validation.js";
 import { isAddress, keccak256, toHex, decodeEventLog } from "viem";
 
 const REGISTERED_EVENT_TOPIC = keccak256(toHex("Registered(uint256,string,address)"));
@@ -81,10 +82,10 @@ export class AgentClient {
   }
 
   async register(opts: RegisterOptions): Promise<RegisterResult> {
-    if (!opts.name || opts.name.length > 100) throw new ValidationError("Agent name must be 1-100 characters.");
+    validateStringField(opts.name, "name", VALIDATION_LIMITS.NAME_MAX_BYTES, true);
     if (!AGENT_TYPES.includes(opts.type)) throw new ValidationError(`Invalid agent type "${opts.type}". Must be one of: ${AGENT_TYPES.join(", ")}.`);
-    if (opts.description && opts.description.length > 500) throw new ValidationError("Description must be 500 characters or fewer.");
-    if (!opts.builderCode) throw new ValidationError("Builder code is required.");
+    validateStringField(opts.description, "description", VALIDATION_LIMITS.DESCRIPTION_MAX_BYTES, false);
+    validateStringField(opts.builderCode, "builderCode", VALIDATION_LIMITS.BUILDER_CODE_MAX_BYTES, true);
     if (!isAddress(opts.wallet)) throw new ValidationError(`Invalid wallet address: ${opts.wallet}. Must be a checksummed 0x address.`);
 
     const { publicClient, walletClient, identityRegistry, account } = this.clients;
@@ -100,7 +101,7 @@ export class AgentClient {
       name: opts.name, type: opts.type, description: opts.description,
       builderCode: opts.builderCode, operatorAddress: this.key.address,
       services: opts.services, image: resolvedImage, x402: opts.x402,
-      chainId: this.config.chainId,
+      chainId: this.config.chainId, actions: opts.actions,
     });
 
     const metadata = [
@@ -218,6 +219,12 @@ export class AgentClient {
     if (opts.wallet && !isAddress(opts.wallet)) {
       throw new ValidationError(`Invalid wallet address: ${opts.wallet}. Must be a checksummed 0x address.`);
     }
+    if (opts.type && !AGENT_TYPES.includes(opts.type)) {
+      throw new ValidationError(`Invalid agent type "${opts.type}". Must be one of: ${AGENT_TYPES.join(", ")}.`);
+    }
+    validateStringField(opts.name, "name", VALIDATION_LIMITS.NAME_MAX_BYTES, false);
+    validateStringField(opts.description, "description", VALIDATION_LIMITS.DESCRIPTION_MAX_BYTES, false);
+    validateStringField(opts.builderCode, "builderCode", VALIDATION_LIMITS.BUILDER_CODE_MAX_BYTES, false);
 
     const { publicClient, walletClient, identityRegistry } = this.clients;
     const contractArgs = { address: this.config.identityRegistry, abi: identityRegistry.abi } as const;
@@ -426,9 +433,17 @@ export class AgentClient {
   }
 
   async giveFeedback(opts: GiveFeedbackOptions): Promise<GiveFeedbackResult> {
+    const valueDecimals = opts.valueDecimals ?? 0;
+    if (valueDecimals < VALIDATION_LIMITS.VALUE_DECIMALS_MIN || valueDecimals > VALIDATION_LIMITS.VALUE_DECIMALS_MAX || !Number.isInteger(valueDecimals)) {
+      throw new ValidationError(`valueDecimals must be an integer between ${VALIDATION_LIMITS.VALUE_DECIMALS_MIN} and ${VALIDATION_LIMITS.VALUE_DECIMALS_MAX}.`);
+    }
+    validateStringField(opts.tag1, "tag1", VALIDATION_LIMITS.TAG_MAX_BYTES, false);
+    validateStringField(opts.tag2, "tag2", VALIDATION_LIMITS.TAG_MAX_BYTES, false);
+    validateStringField(opts.endpoint, "endpoint", VALIDATION_LIMITS.ENDPOINT_MAX_BYTES, false);
+    validateStringField(opts.feedbackURI, "feedbackURI", VALIDATION_LIMITS.FEEDBACK_URI_MAX_BYTES, false);
+
     const { publicClient, walletClient, account } = this.clients;
     const { agentId, value } = opts;
-    const valueDecimals = opts.valueDecimals ?? 0;
     const tag1 = opts.tag1 ?? "";
     const tag2 = opts.tag2 ?? "";
     const endpoint = opts.endpoint ?? "";

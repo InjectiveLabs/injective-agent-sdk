@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { generateAgentCard, mergeAgentCard } from "../src/card.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { generateAgentCard, mergeAgentCard, validateFetchedCard, validateServiceEntry, fetchAgentCard } from "../src/card.js";
+import { AGENT_CARD_TYPE, AGENT_CARD_TYPE_ALT } from "../src/types.js";
 import type { AgentCard } from "../src/types.js";
 
 describe("generateAgentCard", () => {
@@ -7,8 +8,10 @@ describe("generateAgentCard", () => {
     const card = generateAgentCard({
       name: "TestAgent", type: "trading", description: "A test agent",
       builderCode: "test-builder", operatorAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      chainId: 1439,
     });
-    expect(card.type).toBe("https://eips.ethereum.org/EIPS/eip-8004#registration-v1");
+    expect(card.type).toBe(AGENT_CARD_TYPE);
+    expect(card.metadata.chainId).toBe("1439");
     expect(card.name).toBe("TestAgent");
     expect(card.description).toBe("A test agent");
     expect(card.metadata.agentType).toBe("trading");
@@ -37,11 +40,11 @@ describe("generateAgentCard", () => {
 
 describe("mergeAgentCard", () => {
   const baseCard: AgentCard = {
-    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    type: AGENT_CARD_TYPE,
     name: "Original", description: "Original description",
     services: [{ type: "mcp", url: "https://old.io/mcp" }],
     image: "ipfs://OldImage", x402Support: false,
-    metadata: { chain: "injective", chainId: "1776", agentType: "trading", builderCode: "builder", operatorAddress: "0x123" },
+    metadata: { chain: "injective", chainId: "1439", agentType: "trading", builderCode: "builder", operatorAddress: "0x123" },
   };
 
   it("replaces service of same type", () => {
@@ -71,5 +74,165 @@ describe("mergeAgentCard", () => {
     const merged = mergeAgentCard(baseCard, { x402: true });
     expect(merged.name).toBe("Original");
     expect(merged.services).toEqual(baseCard.services);
+  });
+});
+
+describe("generateAgentCard chainId", () => {
+  it("defaults to 'unknown' when no chainId provided", () => {
+    const card = generateAgentCard({
+      name: "NoChain", type: "other", builderCode: "b", operatorAddress: "0x0",
+    });
+    expect(card.metadata.chainId).toBe("unknown");
+  });
+
+  it("converts numeric chainId to string", () => {
+    const card = generateAgentCard({
+      name: "Numeric", type: "other", builderCode: "b", operatorAddress: "0x0", chainId: 2525,
+    });
+    expect(card.metadata.chainId).toBe("2525");
+  });
+});
+
+describe("validateFetchedCard", () => {
+  it("preserves legacy chainId '1776'", () => {
+    const card = validateFetchedCard({
+      name: "Legacy", metadata: { chain: "injective", chainId: "1776", agentType: "trading", builderCode: "b", operatorAddress: "0x0" },
+    });
+    expect(card.metadata.chainId).toBe("1776");
+  });
+
+  it("defaults chainId to 'unknown' when missing", () => {
+    const card = validateFetchedCard({
+      name: "NoChainId", metadata: { chain: "injective", agentType: "trading", builderCode: "b", operatorAddress: "0x0" },
+    });
+    expect(card.metadata.chainId).toBe("unknown");
+  });
+
+  it("defaults chainId to 'unknown' when metadata is missing entirely", () => {
+    const card = validateFetchedCard({ name: "NoMeta" });
+    expect(card.metadata.chainId).toBe("unknown");
+  });
+
+  it("accepts alternate card type URI", () => {
+    const card = validateFetchedCard({
+      type: AGENT_CARD_TYPE_ALT, name: "AltType",
+      metadata: { chain: "injective", chainId: "1439", agentType: "trading", builderCode: "b", operatorAddress: "0x0" },
+    });
+    expect(card.type).toBe(AGENT_CARD_TYPE_ALT);
+  });
+
+  it("preserves card type from JSON", () => {
+    const card = validateFetchedCard({
+      type: AGENT_CARD_TYPE, name: "Canonical",
+    });
+    expect(card.type).toBe(AGENT_CARD_TYPE);
+  });
+
+  it("defaults type to AGENT_CARD_TYPE when missing", () => {
+    const card = validateFetchedCard({ name: "NoType" });
+    expect(card.type).toBe(AGENT_CARD_TYPE);
+  });
+});
+
+describe("fetchAgentCard", () => {
+  const validCard = { name: "TestAgent", metadata: { chain: "injective", chainId: "1439", agentType: "trading", builderCode: "b", operatorAddress: "0x0" } };
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("fetches card from https URI directly (no fallback)", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify(validCard), { status: 200 }));
+    const card = await fetchAgentCard("https://example.com/card.json");
+    expect(card.name).toBe("TestAgent");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects unsupported URI scheme", async () => {
+    await expect(fetchAgentCard("ftp://bad.com/card")).rejects.toThrow("Unsupported URI scheme");
+  });
+
+  it("uses primary gateway for ipfs:// URI", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify(validCard), { status: 200 }));
+    const card = await fetchAgentCard("ipfs://QmTestCid", "https://gateway.pinata.cloud/ipfs/");
+    expect(card.name).toBe("TestAgent");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("https://gateway.pinata.cloud/ipfs/QmTestCid");
+  });
+
+  it("falls back to next gateway on primary failure", async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValueOnce(new Response(JSON.stringify(validCard), { status: 200 }));
+    const card = await fetchAgentCard("ipfs://QmTestCid", "https://gateway.pinata.cloud/ipfs/");
+    expect(card.name).toBe("TestAgent");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1][0]).toBe("https://ipfs.io/ipfs/QmTestCid");
+  });
+
+  it("falls back to third gateway when first two fail", async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValueOnce(new Response("", { status: 502 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(validCard), { status: 200 }));
+    const card = await fetchAgentCard("ipfs://QmTestCid", "https://gateway.pinata.cloud/ipfs/");
+    expect(card.name).toBe("TestAgent");
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy.mock.calls[2][0]).toBe("https://cloudflare-ipfs.com/ipfs/QmTestCid");
+  });
+
+  it("throws when all gateways fail", async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockRejectedValueOnce(new Error("timeout"));
+    await expect(fetchAgentCard("ipfs://QmTestCid")).rejects.toThrow("Failed to fetch agent card from all IPFS gateways");
+  });
+
+  it("deduplicates primary gateway from fallback list", async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValueOnce(new Response(JSON.stringify(validCard), { status: 200 }));
+    // Primary is ipfs.io which is also in fallback list — should not be tried twice
+    const card = await fetchAgentCard("ipfs://QmTestCid", "https://ipfs.io/ipfs/");
+    expect(card.name).toBe("TestAgent");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    // Second call should be cloudflare, not ipfs.io again
+    expect(fetchSpy.mock.calls[1][0]).toBe("https://cloudflare-ipfs.com/ipfs/QmTestCid");
+  });
+});
+
+describe("validateServiceEntry", () => {
+  it("preserves known service types", () => {
+    const entry = validateServiceEntry({ type: "mcp", url: "https://a.io" });
+    expect(entry).toEqual({ type: "mcp", url: "https://a.io" });
+  });
+
+  it("preserves wider service types (rest, grpc)", () => {
+    expect(validateServiceEntry({ type: "rest", url: "https://a.io" })).toEqual({ type: "rest", url: "https://a.io" });
+    expect(validateServiceEntry({ type: "grpc", url: "grpc://a.io:50051" })).toEqual({ type: "grpc", url: "grpc://a.io:50051" });
+  });
+
+  it("preserves unknown future service types", () => {
+    const entry = validateServiceEntry({ type: "quantum-rpc", url: "https://q.io" });
+    expect(entry).toEqual({ type: "quantum-rpc", url: "https://q.io" });
+  });
+
+  it("drops entries with missing url", () => {
+    expect(validateServiceEntry({ type: "mcp" })).toBeNull();
+  });
+
+  it("drops entries with missing type", () => {
+    expect(validateServiceEntry({ url: "https://a.io" })).toBeNull();
+  });
+
+  it("drops non-object entries", () => {
+    expect(validateServiceEntry("string")).toBeNull();
+    expect(validateServiceEntry(null)).toBeNull();
   });
 });

@@ -34,20 +34,20 @@ export interface AuditEntry {
     message: string;
   };
   durationMs: number;
-  source: "cli" | "mcp" | "sdk";
+  source: "cli" | "sdk";
 }
 
 export interface AuditLoggerConfig {
   logPath?: string;
   enabled?: boolean;
-  source?: "cli" | "mcp" | "sdk";
+  source?: "cli" | "sdk";
   flushInterval?: number;  // milliseconds, default 1000
 }
 
 export const DEFAULT_AUDIT_LOG_PATH = join(homedir(), ".injective-agent", "audit.log");
 
 export class AuditLogger {
-  readonly source: "cli" | "mcp" | "sdk";
+  readonly source: "cli" | "sdk";
   private readonly logPath: string;
   private readonly enabled: boolean;
   private buffer: string[] = [];
@@ -151,6 +151,18 @@ export class AuditLogger {
         };
       case "deregister":
         return { agentId: String(args[0]) };
+      case "giveFeedback":
+        return {
+          agentId: String(args[0]),
+          value: String(args[1]),
+          valueDecimals: args[2],
+          tag1: args[3],
+          tag2: args[4],
+          endpoint: args[5],
+          // feedbackURI and feedbackHash intentionally omitted
+        };
+      case "revokeFeedback":
+        return { agentId: String(args[0]), feedbackIndex: String(args[1]) };
       default:
         return { argCount: args.length };
     }

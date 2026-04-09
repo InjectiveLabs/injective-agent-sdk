@@ -69,6 +69,7 @@ export async function update(opts: UpdateOptions): Promise<UpdateResult> {
         existingCard = generateAgentCard({
           name: `Agent ${opts.agentId}`, type: "other",
           builderCode: "", operatorAddress: "",
+          chainId: config.chainId,
         });
       }
     }

@@ -76,4 +76,54 @@ describe("AgentReadClient", () => {
     expect(result.agents.length).toBeGreaterThan(0);
     expect(result.agents[0].owner.toLowerCase()).toBe("0x2968698c6b9ed6d44b667a0b1f312a3b5d94ded7");
   }, 120000);
+
+  // ─── Enhanced Reputation & Feedback ────────────────────────────
+
+  itLive("getFeedbackEntries returns entries with feedbackIndex", async () => {
+    const entries = await client.getFeedbackEntries(5n);
+    if (entries.length > 0) {
+      expect(entries[0]).toHaveProperty("feedbackIndex");
+      expect(typeof entries[0].feedbackIndex).toBe("bigint");
+    }
+  }, 15000);
+
+  itLive("getFeedbackEntries with no options behaves identically (backward compat)", async () => {
+    const entries = await client.getFeedbackEntries(5n);
+    for (const e of entries) {
+      expect(e).toHaveProperty("client");
+      expect(e).toHaveProperty("feedbackIndex");
+      expect(e).toHaveProperty("value");
+      expect(e).toHaveProperty("decimals");
+      expect(e).toHaveProperty("tags");
+      expect(e).toHaveProperty("revoked");
+      expect(e.revoked).toBe(false); // default excludes revoked
+    }
+  }, 15000);
+
+  itLive("getFeedbackEntries with includeRevoked returns all entries", async () => {
+    const withoutRevoked = await client.getFeedbackEntries(5n);
+    const withRevoked = await client.getFeedbackEntries(5n, { includeRevoked: true });
+    expect(withRevoked.length).toBeGreaterThanOrEqual(withoutRevoked.length);
+  }, 15000);
+
+  itLive("getReputation returns clients array", async () => {
+    const rep = await client.getReputation(5n);
+    expect(typeof rep.score).toBe("number");
+    expect(typeof rep.count).toBe("number");
+    expect(Array.isArray(rep.clients)).toBe(true);
+  }, 15000);
+
+  itLive("getReputation for agent with no feedback returns zeros", async () => {
+    // Use a very high agent ID that likely has no feedback
+    const rep = await client.getReputation(999999n);
+    expect(rep).toEqual({ score: 0, count: 0, clients: [] });
+  }, 15000);
+
+  itLive("getClients returns address array", async () => {
+    const clients = await client.getClients(5n);
+    expect(Array.isArray(clients)).toBe(true);
+    if (clients.length > 0) {
+      expect(clients[0]).toMatch(/^0x/);
+    }
+  }, 15000);
 });

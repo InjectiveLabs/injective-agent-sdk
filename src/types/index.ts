@@ -1,8 +1,11 @@
 export type AgentType = "trading" | "liquidation" | "data" | "portfolio" | "other";
 export const AGENT_TYPES: AgentType[] = ["trading", "liquidation", "data", "portfolio", "other"];
 
-export type ServiceType = "mcp" | "a2a" | "web" | "oasf";
-export const SERVICE_TYPES: ServiceType[] = ["mcp", "a2a", "web", "oasf"];
+export type ServiceType = "mcp" | "a2a" | "web" | "oasf" | "rest" | "grpc" | "webhook" | "custom";
+export const SERVICE_TYPES: ServiceType[] = ["mcp", "a2a", "web", "oasf", "rest", "grpc", "webhook", "custom"];
+
+export const AGENT_CARD_TYPE = "https://eips.ethereum.org/EIPS/eip-8004#registration-v1" as const;
+export const AGENT_CARD_TYPE_ALT = "https://erc8004.org/agent-card" as const;
 
 export interface ServiceEntry {
   type: ServiceType;
@@ -11,7 +14,7 @@ export interface ServiceEntry {
 }
 
 export interface AgentCard {
-  type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1";
+  type: string;
   name: string;
   description?: string;
   services: ServiceEntry[];
@@ -19,7 +22,7 @@ export interface AgentCard {
   x402Support: boolean;
   metadata: {
     chain: "injective";
-    chainId: "1776";
+    chainId: string;
     agentType: AgentType;
     builderCode: string;
     operatorAddress: string;
