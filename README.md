@@ -117,7 +117,7 @@ import { AgentClient, PinataStorage } from '@injective/agent-sdk'
 
 const client = new AgentClient({
   privateKey: '0x...',              // required
-  network: 'testnet',              // 'testnet' | 'mainnet' (default: testnet)
+  network: 'testnet',              // 'staging' | 'testnet' | 'mainnet' (default: testnet)
   rpcUrl: 'https://custom-rpc',   // optional override
   storage: new PinataStorage({ jwt: '...' }),  // optional
   callbacks: {
@@ -390,7 +390,7 @@ inj-agent status <agentId> [--json]
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
 | `INJ_PRIVATE_KEY` | Yes | -- | Hex-encoded private key (with or without `0x` prefix) |
-| `INJ_NETWORK` | No | `testnet` | `testnet` or `mainnet` |
+| `INJ_NETWORK` | No | `testnet` | `staging`, `testnet`, or `mainnet` |
 | `INJ_RPC_URL` | No | Network default | Override RPC endpoint |
 | `PINATA_JWT` | No | -- | Pinata API key for IPFS uploads |
 
@@ -429,7 +429,31 @@ Every registered agent has a JSON card hosted on IPFS conforming to the ERC-8004
 
 ## Network & Contracts
 
+The SDK supports three environments, selected via `INJ_NETWORK`:
+
+### Mainnet (Chain ID: 2525)
+
+| Contract | Address |
+|----------|---------|
+| IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| ValidationRegistry | Not yet deployed |
+
+RPC: `https://evm.injective.network`
+
 ### Testnet (Chain ID: 1439)
+
+| Contract | Address |
+|----------|---------|
+| IdentityRegistry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
+| ReputationRegistry | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
+| ValidationRegistry | Not yet deployed |
+
+RPC: `https://testnet.sentry.chain.json-rpc.injective.network`
+
+### Staging (Chain ID: 1439)
+
+Early deployment on testnet with the original contract set. Useful for development and testing.
 
 | Contract | Address |
 |----------|---------|
@@ -438,9 +462,6 @@ Every registered agent has a JSON card hosted on IPFS conforming to the ERC-8004
 | ValidationRegistry | `0xbd84e152f41e28d92437b4b822b77e7e31bfd2a4` |
 
 RPC: `https://testnet.sentry.chain.json-rpc.injective.network`
-IPFS Gateway: `https://w3s.link/ipfs/`
-
-Mainnet contracts are not yet deployed.
 
 ### Agent Types
 
@@ -505,7 +526,7 @@ cd packages/cli && pnpm dev register --help
 | `No Pinata API key found` | Set `PINATA_JWT` in `.env` or use `--uri` |
 | `Invalid wallet address: inj1...` | Use `0x` EVM format, not bech32 |
 | `Skipping wallet linkage` | `--wallet` doesn't match your key's address |
-| `Mainnet contracts not yet deployed` | Use `INJ_NETWORK=testnet` |
+| `ValidationRegistry not deployed` | ValidationRegistry is not yet live on testnet/mainnet; validation features are unavailable |
 | `Transaction reverted` | Check gas, balance, and that you own the agent |
 
 ## Security
