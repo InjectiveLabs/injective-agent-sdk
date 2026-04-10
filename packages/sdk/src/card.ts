@@ -1,5 +1,5 @@
-import type { AgentCard, AgentType, ActionSchema, ServiceEntry, ServiceType, GenerateCardOptions, CardUpdates } from "./types.js";
-import { AGENT_CARD_TYPE } from "./types.js";
+import type { AgentCard, AgentType, ActionSchema, ServiceEntry, ServiceType, GenerateCardOptions, CardUpdates, Registration } from "./types.js";
+import { AGENT_CARD_TYPE, LEGACY_SERVICE_NAME_MAP } from "./types.js";
 import { assertPublicUrl } from "./validation.js";
 import { ValidationError } from "./errors.js";
 
@@ -47,6 +47,10 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
   if (updates.description !== undefined) card.description = updates.description;
   if (updates.image !== undefined) card.image = updates.image;
   if (updates.x402 !== undefined) card.x402Support = updates.x402;
+  if (updates.active !== undefined) card.active = updates.active;
+
+  // Always bump updatedAt on merge
+  card.updatedAt = Math.floor(Date.now() / 1000);
 
   if (updates.services) {
     let merged = [...card.services];
@@ -93,11 +97,24 @@ export async function checkServiceReachability(url: string): Promise<string | nu
 export function validateServiceEntry(raw: unknown): ServiceEntry | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
-  if (typeof obj.type !== "string") return null;
-  if (typeof obj.url !== "string") return null;
-  const entry: ServiceEntry = { type: obj.type as ServiceType, url: obj.url };
-  if (typeof obj.description === "string") entry.description = obj.description;
-  return entry;
+
+  // New format: name + endpoint
+  if (typeof obj.name === "string" && typeof obj.endpoint === "string") {
+    const entry: ServiceEntry = { name: obj.name, endpoint: obj.endpoint };
+    if (typeof obj.description === "string") entry.description = obj.description;
+    if (typeof obj.version === "string") entry.version = obj.version;
+    return entry;
+  }
+
+  // Legacy format: type + url → convert to name + endpoint
+  if (typeof obj.type === "string" && typeof obj.url === "string") {
+    const name = LEGACY_SERVICE_NAME_MAP[obj.type as ServiceType] ?? obj.type;
+    const entry: ServiceEntry = { name, endpoint: obj.url };
+    if (typeof obj.description === "string") entry.description = obj.description;
+    return entry;
+  }
+
+  return null;
 }
 
 export function validateFetchedCard(raw: unknown): AgentCard {
@@ -132,6 +149,17 @@ export function validateFetchedCard(raw: unknown): AgentCard {
   };
   if (Array.isArray(obj.actions) && obj.actions.length > 0) {
     card.actions = obj.actions as ActionSchema[];
+  }
+  if (typeof obj.active === "boolean") card.active = obj.active;
+  if (typeof obj.updatedAt === "number") card.updatedAt = obj.updatedAt;
+  if (Array.isArray(obj.registrations)) {
+    const regs = (obj.registrations as unknown[]).filter(
+      (r): r is Registration =>
+        typeof r === "object" && r !== null &&
+        "agentRegistry" in r &&
+        typeof (r as Record<string, unknown>).agentRegistry === "string"
+    );
+    if (regs.length > 0) card.registrations = regs;
   }
   return card;
 }

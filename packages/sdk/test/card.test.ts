@@ -137,6 +137,48 @@ describe("mergeAgentCard", () => {
     expect(merged.name).toBe("Original");
     expect(merged.services).toEqual(baseCard.services);
   });
+
+  it("preserves registrations on merge", () => {
+    const card: AgentCard = {
+      ...baseCard,
+      registrations: [{ agentId: 1n, agentRegistry: "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e" }],
+    };
+    const merged = mergeAgentCard(card, { name: "Updated" });
+    expect(merged.registrations).toEqual([{ agentId: 1n, agentRegistry: "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e" }]);
+  });
+
+  it("merges active flag to false", () => {
+    const card = { ...baseCard, active: true };
+    const merged = mergeAgentCard(card, { active: false });
+    expect(merged.active).toBe(false);
+  });
+
+  it("updates updatedAt on any merge", () => {
+    const before = Math.floor(Date.now() / 1000);
+    const merged = mergeAgentCard(baseCard, { name: "Refreshed" });
+    expect(merged.updatedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it("removes service by name", () => {
+    const card: AgentCard = {
+      ...baseCard,
+      services: [{ name: "MCP", endpoint: "https://old.io/mcp" }],
+    };
+    const merged = mergeAgentCard(card, { removeServices: ["MCP"] });
+    expect(merged.services).toHaveLength(0);
+  });
+
+  it("matches services by name for upsert", () => {
+    const card: AgentCard = {
+      ...baseCard,
+      services: [{ name: "MCP", endpoint: "https://old.io/mcp" }],
+    };
+    const merged = mergeAgentCard(card, {
+      services: [{ name: "MCP", endpoint: "https://new.io/mcp" }],
+    });
+    expect(merged.services).toHaveLength(1);
+    expect(merged.services[0].endpoint).toBe("https://new.io/mcp");
+  });
 });
 
 describe("generateAgentCard chainId", () => {
@@ -272,17 +314,17 @@ describe("fetchAgentCard", () => {
 describe("validateServiceEntry", () => {
   it("preserves known service types", () => {
     const entry = validateServiceEntry({ type: "mcp", url: "https://a.io" });
-    expect(entry).toEqual({ type: "mcp", url: "https://a.io" });
+    expect(entry).toEqual({ name: "MCP", endpoint: "https://a.io" });
   });
 
   it("preserves wider service types (rest, grpc)", () => {
-    expect(validateServiceEntry({ type: "rest", url: "https://a.io" })).toEqual({ type: "rest", url: "https://a.io" });
-    expect(validateServiceEntry({ type: "grpc", url: "grpc://a.io:50051" })).toEqual({ type: "grpc", url: "grpc://a.io:50051" });
+    expect(validateServiceEntry({ type: "rest", url: "https://a.io" })).toEqual({ name: "web", endpoint: "https://a.io" });
+    expect(validateServiceEntry({ type: "grpc", url: "grpc://a.io:50051" })).toEqual({ name: "web", endpoint: "grpc://a.io:50051" });
   });
 
   it("preserves unknown future service types", () => {
     const entry = validateServiceEntry({ type: "quantum-rpc", url: "https://q.io" });
-    expect(entry).toEqual({ type: "quantum-rpc", url: "https://q.io" });
+    expect(entry).toEqual({ name: "quantum-rpc", endpoint: "https://q.io" });
   });
 
   it("drops entries with missing url", () => {
@@ -296,5 +338,68 @@ describe("validateServiceEntry", () => {
   it("drops non-object entries", () => {
     expect(validateServiceEntry("string")).toBeNull();
     expect(validateServiceEntry(null)).toBeNull();
+  });
+
+  it("accepts new name/endpoint format directly", () => {
+    const entry = validateServiceEntry({ name: "MCP", endpoint: "https://a.io", version: "2025-06-18" });
+    expect(entry).toEqual({ name: "MCP", endpoint: "https://a.io", version: "2025-06-18" });
+  });
+});
+
+describe("validateFetchedCard backward compatibility", () => {
+  it("converts legacy type/url to name/endpoint", () => {
+    const card = validateFetchedCard({
+      name: "Legacy",
+      services: [{ type: "mcp", url: "https://old.io/mcp" }],
+    });
+    expect(card.services[0].name).toBe("MCP");
+    expect(card.services[0].endpoint).toBe("https://old.io/mcp");
+    expect((card.services[0] as any).type).toBeUndefined();
+    expect((card.services[0] as any).url).toBeUndefined();
+  });
+
+  it("passes through new name/endpoint fields as-is", () => {
+    const card = validateFetchedCard({
+      name: "Modern",
+      services: [{ name: "MCP", endpoint: "https://new.io/mcp", version: "2025-06-18" }],
+    });
+    expect(card.services[0]).toEqual({ name: "MCP", endpoint: "https://new.io/mcp", version: "2025-06-18" });
+  });
+
+  it("preserves registrations array", () => {
+    const card = validateFetchedCard({
+      name: "WithReg",
+      registrations: [{ agentId: 3, agentRegistry: "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e" }],
+    });
+    expect(card.registrations).toHaveLength(1);
+    expect(card.registrations![0].agentRegistry).toBe("eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e");
+  });
+
+  it("preserves active flag", () => {
+    const card = validateFetchedCard({ name: "Active", active: true });
+    expect(card.active).toBe(true);
+  });
+
+  it("preserves updatedAt", () => {
+    const card = validateFetchedCard({ name: "Ts", updatedAt: 1712700000 });
+    expect(card.updatedAt).toBe(1712700000);
+  });
+
+  it("converts legacy a2a type", () => {
+    const card = validateFetchedCard({
+      name: "A2ALegacy",
+      services: [{ type: "a2a", url: "https://old.io/a2a", description: "A2A endpoint" }],
+    });
+    expect(card.services[0].name).toBe("A2A");
+    expect(card.services[0].endpoint).toBe("https://old.io/a2a");
+    expect(card.services[0].description).toBe("A2A endpoint");
+  });
+
+  it("maps legacy rest/grpc to web", () => {
+    const card = validateFetchedCard({
+      name: "Rest",
+      services: [{ type: "rest", url: "https://api.io/rest" }],
+    });
+    expect(card.services[0].name).toBe("web");
   });
 });
