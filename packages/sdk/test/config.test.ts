@@ -17,7 +17,7 @@ describe("resolveNetworkConfig", () => {
   it("resolves mainnet config", () => {
     const config = resolveNetworkConfig({ network: "mainnet" });
     expect(config.name).toBe("mainnet");
-    expect(config.chainId).toBe(2525);
+    expect(config.chainId).toBe(1776);
   });
 
   it("throws on unknown network", () => {

@@ -191,9 +191,9 @@ describe("generateAgentCard chainId", () => {
 
   it("converts numeric chainId to string", () => {
     const card = generateAgentCard({
-      name: "Numeric", type: "other", builderCode: "b", operatorAddress: "0x0", chainId: 2525,
+      name: "Numeric", type: "other", builderCode: "b", operatorAddress: "0x0", chainId: 1776,
     });
-    expect(card.metadata.chainId).toBe("2525");
+    expect(card.metadata.chainId).toBe("1776");
   });
 });
 
