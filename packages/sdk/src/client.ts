@@ -168,20 +168,41 @@ export class AgentClient {
       if (!registeredLog?.topics[1]) throw new ContractError("Failed to extract agentId from register transaction.");
       const agentId = BigInt(registeredLog.topics[1]);
 
-      // Two-phase: re-upload card with the confirmed agentId in registrations
+      // Two-phase: re-upload card with the confirmed agentId in registrations.
+      // Wrapped in its own try/catch — registration already succeeded; a failure
+      // here is a warning, not a fatal error. The caller still gets the agentId.
       if (card.registrations?.length && this.storage && !opts.uri && !opts.dryRun) {
-        card.registrations[0].agentId = agentId;
-        card.updatedAt = Math.floor(Date.now() / 1000);
-        this.callbacks.onProgress?.("Re-uploading card with confirmed agentId...");
-        const updatedUri = await this.storage.uploadJSON(card, card.name);
-        if (updatedUri !== cardUri) {
-          this.callbacks.onProgress?.("Broadcasting setAgentURI...");
-          const setUriHash = await walletClient.writeContract({
-            ...baseParams, functionName: "setAgentURI", args: [agentId, updatedUri] as unknown as unknown[],
-            nonce: nonce++, gasPrice, gas: 200_000n,
-          });
-          txHashes.push(setUriHash);
-          cardUri = updatedUri;
+        try {
+          card.registrations[0].agentId = agentId;
+          card.updatedAt = Math.floor(Date.now() / 1000);
+          this.callbacks.onProgress?.("Re-uploading card with confirmed agentId...");
+          const updatedUri = await this.storage.uploadJSON(card, card.name);
+          if (updatedUri !== cardUri) {
+            const setUriArgs = [agentId, updatedUri] as const;
+            const setUriAuditArgs = AuditLogger.sanitizeArgs("setAgentURI", setUriArgs);
+            const setUriSim = await simulateOnly(publicClient, {
+              ...baseParams, functionName: "setAgentURI", args: setUriArgs, gasPrice, gas: 200_000n,
+            }, this.callbacks);
+            this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "setAgentURI", args: setUriAuditArgs,
+              simulation: { passed: true, gasEstimate: String(setUriSim.gasEstimate) }, durationMs: Date.now() - startMs });
+            this.callbacks.onProgress?.("Broadcasting setAgentURI...");
+            const setUriHash = await walletClient.writeContract({
+              ...baseParams, functionName: "setAgentURI", args: setUriArgs as unknown as unknown[],
+              nonce: nonce++, gasPrice, gas: 200_000n,
+            });
+            txHashes.push(setUriHash);
+            this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "setAgentURI", args: setUriAuditArgs,
+              durationMs: Date.now() - startMs, result: { txHash: setUriHash } });
+            cardUri = updatedUri;
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.callbacks.onWarning?.(
+            `Agent #${agentId} registered but two-phase URI update failed: ${msg}. ` +
+            `The on-chain URI still points to the card with agentId:null. Run 'update ${agentId} --uri <new-cid>' to fix.`
+          );
+          this.audit.log({ event: "tx:fail", ...this.auditBase, method: "setAgentURI",
+            args: {}, durationMs: Date.now() - startMs, error: { code: "TwoPhaseUpdateFailed", message: msg } });
         }
       }
 
