@@ -43,14 +43,24 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
     x402Support: existing.x402Support ?? false,
   };
 
+  const hasChanges =
+    updates.name !== undefined ||
+    updates.description !== undefined ||
+    updates.image !== undefined ||
+    updates.x402 !== undefined ||
+    updates.active !== undefined ||
+    (updates.services?.length ?? 0) > 0 ||
+    (updates.removeServices?.length ?? 0) > 0 ||
+    updates.actions !== undefined;
+
   if (updates.name) card.name = updates.name;
   if (updates.description !== undefined) card.description = updates.description;
   if (updates.image !== undefined) card.image = updates.image;
   if (updates.x402 !== undefined) card.x402Support = updates.x402;
   if (updates.active !== undefined) card.active = updates.active;
 
-  // Always bump updatedAt on merge
-  card.updatedAt = Math.floor(Date.now() / 1000);
+  // Only bump updatedAt when something actually changed
+  if (hasChanges) card.updatedAt = Math.floor(Date.now() / 1000);
 
   if (updates.services) {
     let merged = [...card.services];
@@ -153,12 +163,15 @@ export function validateFetchedCard(raw: unknown): AgentCard {
   if (typeof obj.active === "boolean") card.active = obj.active;
   if (typeof obj.updatedAt === "number") card.updatedAt = obj.updatedAt;
   if (Array.isArray(obj.registrations)) {
-    const regs = (obj.registrations as unknown[]).filter(
-      (r): r is Registration =>
-        typeof r === "object" && r !== null &&
-        "agentRegistry" in r &&
-        typeof (r as Record<string, unknown>).agentRegistry === "string"
-    );
+    const regs = (obj.registrations as unknown[]).flatMap((r): Registration[] => {
+      if (typeof r !== "object" || r === null) return [];
+      const rec = r as Record<string, unknown>;
+      if (typeof rec.agentRegistry !== "string") return [];
+      // Normalize missing or non-bigint agentId to null rather than leaving undefined
+      const rawId = rec.agentId;
+      const agentId: bigint | null = rawId === null || rawId === undefined ? null : BigInt(rawId as bigint);
+      return [{ agentId, agentRegistry: rec.agentRegistry }];
+    });
     if (regs.length > 0) card.registrations = regs;
   }
   return card;
