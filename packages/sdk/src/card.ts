@@ -10,6 +10,8 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
     services: opts.services ?? [],
     image: opts.image ?? "",
     x402Support: opts.x402 ?? false,
+    active: true,
+    updatedAt: Math.floor(Date.now() / 1000),
     metadata: {
       chain: "injective",
       chainId: String(opts.chainId ?? "unknown"),
@@ -18,6 +20,12 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
       operatorAddress: opts.operatorAddress,
     },
   };
+  if (opts.registryAddress && opts.chainId !== undefined) {
+    card.registrations = [{
+      agentId: null,
+      agentRegistry: `eip155:${opts.chainId}:${opts.registryAddress}`,
+    }];
+  }
   if (opts.description) {
     card.description = opts.description;
   }
@@ -43,7 +51,7 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
   if (updates.services) {
     let merged = [...card.services];
     for (const entry of updates.services) {
-      const idx = merged.findIndex(s => s.type === entry.type);
+      const idx = merged.findIndex(s => s.name === entry.name);
       if (idx >= 0) {
         merged[idx] = entry;
       } else {
@@ -54,7 +62,7 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
   }
 
   if (updates.removeServices) {
-    card.services = card.services.filter(s => !updates.removeServices!.includes(s.type));
+    card.services = card.services.filter(s => !updates.removeServices!.includes(s.name));
   }
 
   if (updates.actions !== undefined) {

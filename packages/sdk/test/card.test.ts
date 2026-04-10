@@ -29,7 +29,7 @@ describe("generateAgentCard", () => {
   it("generates card with services, image, and x402", () => {
     const card = generateAgentCard({
       name: "FullAgent", type: "trading", builderCode: "acme", operatorAddress: "0x1234567890123456789012345678901234567890",
-      services: [{ type: "mcp", url: "https://agent.dev/mcp" }],
+      services: [{ name: "MCP", endpoint: "https://agent.dev/mcp" }],
       image: "ipfs://QmTest123", x402: true,
     });
     expect(card.services).toHaveLength(1);
@@ -49,30 +49,69 @@ describe("generateAgentCard", () => {
     expect((card.services[0] as any).type).toBeUndefined();
     expect((card.services[0] as any).url).toBeUndefined();
   });
+
+  it("sets active: true by default", () => {
+    const card = generateAgentCard({
+      name: "Active", type: "trading", builderCode: "b",
+      operatorAddress: "0x0000000000000000000000000000000000000000", chainId: 1439,
+    });
+    expect(card.active).toBe(true);
+  });
+
+  it("populates registrations from registryAddress + chainId", () => {
+    const card = generateAgentCard({
+      name: "Reg", type: "trading", builderCode: "b",
+      operatorAddress: "0x0000000000000000000000000000000000000000",
+      chainId: 1439,
+      registryAddress: "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+    });
+    expect(card.registrations).toEqual([
+      { agentId: null, agentRegistry: "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e" },
+    ]);
+  });
+
+  it("sets updatedAt to a recent Unix timestamp", () => {
+    const before = Math.floor(Date.now() / 1000);
+    const card = generateAgentCard({
+      name: "Ts", type: "data", builderCode: "b",
+      operatorAddress: "0x0000000000000000000000000000000000000000", chainId: 1439,
+    });
+    const after = Math.floor(Date.now() / 1000);
+    expect(card.updatedAt).toBeGreaterThanOrEqual(before);
+    expect(card.updatedAt).toBeLessThanOrEqual(after);
+  });
+
+  it("omits registrations when registryAddress not provided", () => {
+    const card = generateAgentCard({
+      name: "NoReg", type: "data", builderCode: "b",
+      operatorAddress: "0x0000000000000000000000000000000000000000",
+    });
+    expect(card.registrations).toBeUndefined();
+  });
 });
 
 describe("mergeAgentCard", () => {
   const baseCard: AgentCard = {
     type: AGENT_CARD_TYPE,
     name: "Original", description: "Original description",
-    services: [{ type: "mcp", url: "https://old.io/mcp" }],
+    services: [{ name: "MCP", endpoint: "https://old.io/mcp" }],
     image: "ipfs://OldImage", x402Support: false,
     metadata: { chain: "injective", chainId: "1439", agentType: "trading", builderCode: "builder", operatorAddress: "0x123" },
   };
 
-  it("replaces service of same type", () => {
-    const merged = mergeAgentCard(baseCard, { services: [{ type: "mcp", url: "https://new.io/mcp" }] });
+  it("replaces service of same name", () => {
+    const merged = mergeAgentCard(baseCard, { services: [{ name: "MCP", endpoint: "https://new.io/mcp" }] });
     expect(merged.services).toHaveLength(1);
-    expect(merged.services[0].url).toBe("https://new.io/mcp");
+    expect(merged.services[0].endpoint).toBe("https://new.io/mcp");
   });
 
-  it("appends service of new type", () => {
-    const merged = mergeAgentCard(baseCard, { services: [{ type: "a2a", url: "https://new.io/a2a" }] });
+  it("appends service of new name", () => {
+    const merged = mergeAgentCard(baseCard, { services: [{ name: "A2A", endpoint: "https://new.io/a2a" }] });
     expect(merged.services).toHaveLength(2);
   });
 
-  it("removes service by type", () => {
-    const merged = mergeAgentCard(baseCard, { removeServices: ["mcp"] });
+  it("removes service by name", () => {
+    const merged = mergeAgentCard(baseCard, { removeServices: ["MCP"] });
     expect(merged.services).toHaveLength(0);
   });
 
