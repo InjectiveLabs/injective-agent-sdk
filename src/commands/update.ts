@@ -78,7 +78,7 @@ export async function update(opts: UpdateOptions): Promise<UpdateResult> {
     const [resolvedImage] = await Promise.all([
       opts.image ? resolveImageUri(opts.image) : Promise.resolve(undefined),
       opts.services?.length
-        ? Promise.all(opts.services.map(s => warnIfUnreachable(s.url)))
+        ? Promise.all(opts.services.map(s => warnIfUnreachable(s.endpoint)))
         : Promise.resolve(),
     ]);
 

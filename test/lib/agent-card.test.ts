@@ -204,7 +204,7 @@ describe("mergeAgentCard", () => {
     delete oldCard.image;
     delete oldCard.x402Support;
     delete oldCard.services;
-    const merged = mergeAgentCard(oldCard as AgentCard, { x402: true });
+    const merged = mergeAgentCard(oldCard as unknown as AgentCard, { x402: true });
     expect(merged.services).toEqual([]);
     expect(merged.image).toBe("");
     expect(merged.x402Support).toBe(true);

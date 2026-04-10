@@ -94,7 +94,7 @@ export class AgentClient {
       ? [undefined]
       : await Promise.all([
           opts.image ? this.resolveImage(opts.image) : Promise.resolve(undefined),
-          opts.services?.length ? this.checkServices(opts.services.map(s => s.url)) : Promise.resolve(),
+          opts.services?.length ? this.checkServices(opts.services.map(s => s.endpoint)) : Promise.resolve(),
         ]);
 
     const card = generateAgentCard({
@@ -317,7 +317,7 @@ export class AgentClient {
 
         const [resolvedImage] = await Promise.all([
           opts.image ? this.resolveImage(opts.image) : Promise.resolve(undefined),
-          opts.services?.length ? this.checkServices(opts.services.map(s => s.url)) : Promise.resolve(),
+          opts.services?.length ? this.checkServices(opts.services.map(s => s.endpoint)) : Promise.resolve(),
         ]);
 
         const mergedCard = mergeAgentCard(existingCard, {
