@@ -431,7 +431,7 @@ Every registered agent has a JSON card hosted on IPFS conforming to the ERC-8004
 
 The SDK supports three environments, selected via `INJ_NETWORK`:
 
-### Mainnet (Chain ID: 2525)
+### Mainnet (Chain ID: 1776)
 
 | Contract | Address |
 |----------|---------|
@@ -439,7 +439,7 @@ The SDK supports three environments, selected via `INJ_NETWORK`:
 | ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
 | ValidationRegistry | Not yet deployed |
 
-RPC: `https://evm.injective.network`
+RPC: `https://sentry.evm-rpc.injective.network/`
 
 ### Testnet (Chain ID: 1439)
 

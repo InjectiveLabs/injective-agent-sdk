@@ -27,11 +27,11 @@ export const TESTNET: NetworkConfig = {
   deployBlock: 120790000n,
 };
 
-/** Mainnet: Canonical ERC-8004 contracts on Injective mainnet (chain 2525). */
+/** Mainnet: Canonical ERC-8004 contracts on Injective mainnet (chain 1776). */
 export const MAINNET: NetworkConfig = {
   name: "mainnet",
-  chainId: 2525,
-  rpcUrl: "https://evm.injective.network",
+  chainId: 1776,
+  rpcUrl: "https://sentry.evm-rpc.injective.network/",
   identityRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
   reputationRegistry: "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
   validationRegistry: "0x0000000000000000000000000000000000000000",
