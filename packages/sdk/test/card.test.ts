@@ -88,6 +88,16 @@ describe("generateAgentCard", () => {
     });
     expect(card.registrations).toBeUndefined();
   });
+
+  it("omits registrations when chainId not provided even if registryAddress is given", () => {
+    const card = generateAgentCard({
+      name: "NoChainReg", type: "data", builderCode: "b",
+      operatorAddress: "0x0000000000000000000000000000000000000000",
+      registryAddress: "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+      // chainId intentionally omitted
+    });
+    expect(card.registrations).toBeUndefined();
+  });
 });
 
 describe("mergeAgentCard", () => {
