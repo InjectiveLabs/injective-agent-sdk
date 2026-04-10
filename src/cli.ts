@@ -154,6 +154,8 @@ program
   .option("--image <pathOrUrl>", "New agent image (local file path or URL)")
   .option("--x402", "Enable x402 payment support")
   .option("--no-x402", "Disable x402 payment support")
+  .option("--active", "Mark agent as active on 8004scan")
+  .option("--no-active", "Mark agent as inactive on 8004scan")
   .action(async (agentIdStr, opts) => {
     try {
       const result = await update({
@@ -169,6 +171,7 @@ program
         removeServices: opts.removeService.length > 0 ? opts.removeService : undefined,
         image: opts.image,
         x402: opts.x402,
+        active: opts.active,
       });
       if (opts.json) {
         console.log(JSON.stringify(result, bigintReplacer, 2));
