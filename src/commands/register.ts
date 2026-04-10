@@ -22,7 +22,6 @@ export async function register(opts: RegisterOptions): Promise<RegisterResult> {
   const key = resolveKey();
   const { publicClient, walletClient, identityRegistry, account } = createClients(config, key.account);
 
-  // Resolve image and check service URLs in parallel
   const [resolvedImage] = await Promise.all([
     opts.image ? resolveImageUri(opts.image) : Promise.resolve(undefined),
     opts.services?.length

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import { Command } from "commander";
-import { AGENT_TYPES, SERVICE_TYPES, LEGACY_SERVICE_NAME_MAP } from "./types/index.js";
+import { AGENT_TYPES, LEGACY_SERVICE_NAME_MAP } from "./types/index.js";
 import type { ServiceEntry, ServiceType } from "./types/index.js";
 import { register } from "./commands/register.js";
 import { update } from "./commands/update.js";

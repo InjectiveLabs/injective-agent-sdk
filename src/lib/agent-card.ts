@@ -67,16 +67,14 @@ export function mergeAgentCard(existing: AgentCard, updates: MergeUpdates): Agen
     (updates.services?.length ?? 0) > 0 ||
     (updates.removeServices?.length ?? 0) > 0;
 
-  if (updates.name) card.name = updates.name;
+  if (updates.name !== undefined) card.name = updates.name;
   if (updates.description !== undefined) card.description = updates.description;
   if (updates.image !== undefined) card.image = updates.image;
   if (updates.x402 !== undefined) card.x402Support = updates.x402;
   if (updates.active !== undefined) card.active = updates.active;
 
-  // Only bump updatedAt when something actually changed
   if (hasChanges) card.updatedAt = Math.floor(Date.now() / 1000);
 
-  // Service upsert: replace by name if exists, append if new
   if (updates.services) {
     let merged = [...card.services];
     for (const entry of updates.services) {
@@ -90,7 +88,6 @@ export function mergeAgentCard(existing: AgentCard, updates: MergeUpdates): Agen
     card.services = merged;
   }
 
-  // Service removal
   if (updates.removeServices) {
     card.services = card.services.filter(s => !updates.removeServices!.includes(s.name));
   }

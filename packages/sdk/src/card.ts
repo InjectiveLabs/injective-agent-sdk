@@ -53,7 +53,7 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
     (updates.removeServices?.length ?? 0) > 0 ||
     updates.actions !== undefined;
 
-  if (updates.name) card.name = updates.name;
+  if (updates.name !== undefined) card.name = updates.name;
   if (updates.description !== undefined) card.description = updates.description;
   if (updates.image !== undefined) card.image = updates.image;
   if (updates.x402 !== undefined) card.x402Support = updates.x402;

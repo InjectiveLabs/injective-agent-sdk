@@ -180,11 +180,6 @@ export class AgentClient {
           if (updatedUri !== cardUri) {
             const setUriArgs = [agentId, updatedUri] as const;
             const setUriAuditArgs = AuditLogger.sanitizeArgs("setAgentURI", setUriArgs);
-            const setUriSim = await simulateOnly(publicClient, {
-              ...baseParams, functionName: "setAgentURI", args: setUriArgs, gasPrice, gas: 200_000n,
-            }, this.callbacks);
-            this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "setAgentURI", args: setUriAuditArgs,
-              simulation: { passed: true, gasEstimate: String(setUriSim.gasEstimate) }, durationMs: Date.now() - startMs });
             this.callbacks.onProgress?.("Broadcasting setAgentURI...");
             const setUriHash = await walletClient.writeContract({
               ...baseParams, functionName: "setAgentURI", args: setUriArgs as unknown as unknown[],

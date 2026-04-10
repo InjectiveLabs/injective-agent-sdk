@@ -30,7 +30,6 @@ export async function update(opts: UpdateOptions): Promise<UpdateResult> {
     opts.removeServices?.length || opts.image || opts.x402 !== undefined
   );
 
-  // Fetch ownership and tokenURI in parallel
   const contractArgs = { address: config.identityRegistry, abi: identityRegistry.abi } as const;
   const [owner, tokenUri] = await Promise.all([
     publicClient.readContract({ ...contractArgs, functionName: "ownerOf", args: [opts.agentId] }) as Promise<`0x${string}`>,

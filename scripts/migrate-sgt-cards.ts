@@ -70,42 +70,36 @@ async function main() {
   console.log(`Dry-run: ${DRY_RUN}`);
   console.log("─".repeat(50));
 
-  for (const agentId of AGENT_IDS) {
+  await Promise.allSettled(AGENT_IDS.map(async (agentId) => {
     console.log(`\nAgent #${agentId}`);
     try {
       const status = await client.getStatus(agentId);
-      console.log(`  Owner: ${status.owner}`);
-      console.log(`  Current URI: ${status.tokenUri}`);
+      console.log(`  #${agentId} owner: ${status.owner}`);
+      console.log(`  #${agentId} current URI: ${status.tokenUri}`);
 
       if (!status.tokenUri) {
-        console.log("  No tokenURI — skipping.");
-        continue;
+        console.log(`  #${agentId} no tokenURI — skipping.`);
+        return;
       }
 
-      // Fetch current card
       let rawCard: unknown;
       try {
         rawCard = await fetchAgentCard(status.tokenUri);
-        console.log(`  Fetched card OK`);
+        console.log(`  #${agentId} fetched card OK`);
       } catch (err) {
-        console.warn(`  Failed to fetch card: ${err}. Skipping.`);
-        continue;
+        console.warn(`  #${agentId} failed to fetch card: ${err}. Skipping.`);
+        return;
       }
 
       const card = rawCard as Record<string, unknown>;
-
-      // Transform services
       const rawServices = Array.isArray(card.services) ? card.services : [];
-      const services = transformServices(rawServices);
-
-      // Build compliant card (preserve all existing fields, update the new ones)
       const compliantCard = {
         ...card,
-        services,
+        services: transformServices(rawServices),
         active: true,
         updatedAt: Math.floor(Date.now() / 1000),
         registrations: [{
-          agentId: Number(agentId),
+          agentId,
           agentRegistry: `eip155:${client.config.chainId}:${client.config.identityRegistry}`,
         }],
         metadata: {
@@ -114,39 +108,32 @@ async function main() {
         },
       };
 
-      console.log("  Transformed card:");
-      console.log(`    services: ${JSON.stringify(compliantCard.services)}`);
-      console.log(`    active: ${compliantCard.active}`);
-      console.log(`    updatedAt: ${compliantCard.updatedAt}`);
-      console.log(`    registrations: ${JSON.stringify(compliantCard.registrations)}`);
-      console.log(`    metadata.chainId: ${(compliantCard.metadata as Record<string, unknown>).chainId}`);
+      console.log(`  #${agentId} services: ${JSON.stringify(compliantCard.services)}`);
+      console.log(`  #${agentId} registrations: ${JSON.stringify(compliantCard.registrations)}`);
 
       if (DRY_RUN) {
-        console.log("  [dry-run] Would upload to IPFS and call setAgentURI.");
-        continue;
+        console.log(`  #${agentId} [dry-run] would upload and call setAgentURI.`);
+        return;
       }
 
-      // Upload new card
       const agentName = typeof card.name === "string" ? card.name : `agent-${agentId}`;
-      console.log(`  Uploading to IPFS...`);
+      console.log(`  #${agentId} uploading to IPFS...`);
       const newUri = await storage.uploadJSON(compliantCard, agentName);
-      console.log(`  New URI: ${newUri}`);
+      console.log(`  #${agentId} new URI: ${newUri}`);
 
       if (newUri === status.tokenUri) {
-        console.log("  URI unchanged (content identical) — no on-chain update needed.");
-        continue;
+        console.log(`  #${agentId} URI unchanged — no on-chain update needed.`);
+        return;
       }
 
-      // Update on-chain
-      console.log(`  Calling setAgentURI...`);
       const result = await client.update(agentId, { uri: newUri });
-      console.log(`  setAgentURI tx: ${result.txHashes[0]}`);
-      console.log(`  Agent #${agentId} migrated.`);
+      console.log(`  #${agentId} setAgentURI tx: ${result.txHashes[0]}`);
+      console.log(`  #${agentId} migrated.`);
 
     } catch (err) {
-      console.error(`  Error migrating agent #${agentId}:`, err);
+      console.error(`  #${agentId} error:`, err);
     }
-  }
+  }));
 
   console.log("\n" + "─".repeat(50));
   console.log("Migration complete.");
