@@ -102,6 +102,7 @@ export class AgentClient {
       builderCode: opts.builderCode, operatorAddress: this.key.address,
       services: opts.services, image: resolvedImage, x402: opts.x402,
       chainId: this.config.chainId, actions: opts.actions,
+      registryAddress: this.config.identityRegistry,
     });
 
     const metadata = [
@@ -167,6 +168,23 @@ export class AgentClient {
       if (!registeredLog?.topics[1]) throw new ContractError("Failed to extract agentId from register transaction.");
       const agentId = BigInt(registeredLog.topics[1]);
 
+      // Two-phase: re-upload card with the confirmed agentId in registrations
+      if (card.registrations?.length && this.storage && !opts.uri && !opts.dryRun) {
+        card.registrations[0].agentId = agentId;
+        card.updatedAt = Math.floor(Date.now() / 1000);
+        this.callbacks.onProgress?.("Re-uploading card with confirmed agentId...");
+        const updatedUri = await this.storage.uploadJSON(card, card.name);
+        if (updatedUri !== cardUri) {
+          this.callbacks.onProgress?.("Broadcasting setAgentURI...");
+          const setUriHash = await walletClient.writeContract({
+            ...baseParams, functionName: "setAgentURI", args: [agentId, updatedUri] as unknown as unknown[],
+            nonce: nonce++, gasPrice, gas: 200_000n,
+          });
+          txHashes.push(setUriHash);
+          cardUri = updatedUri;
+        }
+      }
+
       if (opts.wallet.toLowerCase() === this.key.address.toLowerCase()) {
         const deadline = walletLinkDeadline();
         const sig = await signWalletLink({
@@ -213,7 +231,8 @@ export class AgentClient {
   async update(agentId: bigint, opts: UpdateOptions): Promise<UpdateResult> {
     if (!opts.builderCode && !opts.type && !opts.uri && !opts.wallet &&
         !opts.name && !opts.description && !opts.services?.length &&
-        !opts.removeServices?.length && !opts.image && opts.x402 === undefined) {
+        !opts.removeServices?.length && !opts.image && opts.x402 === undefined &&
+        opts.active === undefined) {
       throw new ValidationError("No fields to update. Provide at least one update option.");
     }
     if (opts.wallet && !isAddress(opts.wallet)) {
@@ -231,7 +250,8 @@ export class AgentClient {
 
     const hasCardChanges = !!(
       opts.name || opts.description || opts.services?.length ||
-      opts.removeServices?.length || opts.image || opts.x402 !== undefined
+      opts.removeServices?.length || opts.image || opts.x402 !== undefined ||
+      opts.active !== undefined
     );
 
     const [owner, tokenUri] = await Promise.all([
@@ -286,6 +306,7 @@ export class AgentClient {
           removeServices: opts.removeServices,
           image: resolvedImage,
           x402: opts.x402,
+          active: opts.active,
         });
 
         if (!this.storage) throw new StorageError("No storage provider configured. Provide a uri or configure a StorageProvider.");
@@ -328,7 +349,10 @@ export class AgentClient {
       plannedWrites.push({ functionName: "setAgentWallet", args: [agentId, opts.wallet, deadline, sig], field: "wallet", gas: 300_000n });
     }
 
-    const updateAuditArgs = { agentId: String(agentId), fields: plannedWrites.map(w => w.field) };
+    const updatedFields = plannedWrites.map(w => w.field);
+    if (opts.active !== undefined) updatedFields.push("active");
+
+    const updateAuditArgs = { agentId: String(agentId), fields: updatedFields };
 
     const writeAuditArgs = plannedWrites.map(w => AuditLogger.sanitizeArgs(w.functionName, w.args));
 
@@ -345,7 +369,7 @@ export class AgentClient {
       }
 
       if (opts.dryRun) {
-        return { agentId, updatedFields: plannedWrites.map(w => w.field), txHashes: [], simulations: simulations.map(s => ({ method: s.method, gasEstimate: s.gasEstimate })) };
+        return { agentId, updatedFields, txHashes: [], simulations: simulations.map(s => ({ method: s.method, gasEstimate: s.gasEstimate })) };
       }
 
       let nonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
@@ -370,7 +394,7 @@ export class AgentClient {
       for (let i = 0; i < receipts.length; i++) {
         this.audit.log({ event: "tx:confirm", ...this.auditBase, method: plannedWrites[i].functionName, args: writeAuditArgs[i], durationMs: Date.now() - startMs, result: { txHash: txHashes[i], gasUsed: String(receipts[i].gasUsed), blockNumber: String(receipts[i].blockNumber) } });
       }
-      return { agentId, updatedFields: plannedWrites.map(w => w.field), txHashes };
+      return { agentId, updatedFields, txHashes };
     } catch (error) {
       if (error instanceof SimulationError || error instanceof AgentSdkError) {
         this.audit.log({ event: "tx:fail", ...this.auditBase, method: "update", args: updateAuditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
