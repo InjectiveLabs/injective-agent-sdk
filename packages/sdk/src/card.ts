@@ -20,7 +20,7 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
       operatorAddress: opts.operatorAddress,
     },
   };
-  if (opts.registryAddress && opts.chainId !== undefined) {
+  if (opts.registryAddress && opts.chainId !== undefined && opts.chainId !== "") {
     card.registrations = [{
       agentId: null,
       agentRegistry: `eip155:${opts.chainId}:${opts.registryAddress}`,
