@@ -14,7 +14,13 @@ describe("resolveNetworkConfig", () => {
     expect(config.rpcUrl).toBe("http://localhost:8545");
   });
 
-  it("throws on mainnet", () => {
-    expect(() => resolveNetworkConfig({ network: "mainnet" })).toThrow(AgentSdkError);
+  it("resolves mainnet config", () => {
+    const config = resolveNetworkConfig({ network: "mainnet" });
+    expect(config.name).toBe("mainnet");
+    expect(config.chainId).toBe(2525);
+  });
+
+  it("throws on unknown network", () => {
+    expect(() => resolveNetworkConfig({ network: "devnet" })).toThrow(AgentSdkError);
   });
 });

@@ -1,5 +1,5 @@
-import type { AgentCard, AgentType, ActionSchema, ServiceEntry, ServiceType, GenerateCardOptions, CardUpdates } from "./types.js";
-import { AGENT_CARD_TYPE } from "./types.js";
+import type { AgentCard, AgentType, ActionSchema, ServiceEntry, ServiceType, GenerateCardOptions, CardUpdates, Registration } from "./types.js";
+import { AGENT_CARD_TYPE, LEGACY_SERVICE_NAME_MAP } from "./types.js";
 import { assertPublicUrl } from "./validation.js";
 import { ValidationError } from "./errors.js";
 
@@ -10,6 +10,8 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
     services: opts.services ?? [],
     image: opts.image ?? "",
     x402Support: opts.x402 ?? false,
+    active: true,
+    updatedAt: Math.floor(Date.now() / 1000),
     metadata: {
       chain: "injective",
       chainId: String(opts.chainId ?? "unknown"),
@@ -18,6 +20,12 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
       operatorAddress: opts.operatorAddress,
     },
   };
+  if (opts.registryAddress && opts.chainId !== undefined && opts.chainId !== "") {
+    card.registrations = [{
+      agentId: null,
+      agentRegistry: `eip155:${opts.chainId}:${opts.registryAddress}`,
+    }];
+  }
   if (opts.description) {
     card.description = opts.description;
   }
@@ -35,15 +43,29 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
     x402Support: existing.x402Support ?? false,
   };
 
-  if (updates.name) card.name = updates.name;
+  const hasChanges =
+    updates.name !== undefined ||
+    updates.description !== undefined ||
+    updates.image !== undefined ||
+    updates.x402 !== undefined ||
+    updates.active !== undefined ||
+    (updates.services?.length ?? 0) > 0 ||
+    (updates.removeServices?.length ?? 0) > 0 ||
+    updates.actions !== undefined;
+
+  if (updates.name !== undefined) card.name = updates.name;
   if (updates.description !== undefined) card.description = updates.description;
   if (updates.image !== undefined) card.image = updates.image;
   if (updates.x402 !== undefined) card.x402Support = updates.x402;
+  if (updates.active !== undefined) card.active = updates.active;
+
+  // Only bump updatedAt when something actually changed
+  if (hasChanges) card.updatedAt = Math.floor(Date.now() / 1000);
 
   if (updates.services) {
     let merged = [...card.services];
     for (const entry of updates.services) {
-      const idx = merged.findIndex(s => s.type === entry.type);
+      const idx = merged.findIndex(s => s.name === entry.name);
       if (idx >= 0) {
         merged[idx] = entry;
       } else {
@@ -54,7 +76,7 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
   }
 
   if (updates.removeServices) {
-    card.services = card.services.filter(s => !updates.removeServices!.includes(s.type));
+    card.services = card.services.filter(s => !updates.removeServices!.includes(s.name));
   }
 
   if (updates.actions !== undefined) {
@@ -85,11 +107,24 @@ export async function checkServiceReachability(url: string): Promise<string | nu
 export function validateServiceEntry(raw: unknown): ServiceEntry | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
-  if (typeof obj.type !== "string") return null;
-  if (typeof obj.url !== "string") return null;
-  const entry: ServiceEntry = { type: obj.type as ServiceType, url: obj.url };
-  if (typeof obj.description === "string") entry.description = obj.description;
-  return entry;
+
+  // New format: name + endpoint
+  if (typeof obj.name === "string" && typeof obj.endpoint === "string") {
+    const entry: ServiceEntry = { name: obj.name, endpoint: obj.endpoint };
+    if (typeof obj.description === "string") entry.description = obj.description;
+    if (typeof obj.version === "string") entry.version = obj.version;
+    return entry;
+  }
+
+  // Legacy format: type + url → convert to name + endpoint
+  if (typeof obj.type === "string" && typeof obj.url === "string") {
+    const name = LEGACY_SERVICE_NAME_MAP[obj.type as ServiceType] ?? obj.type;
+    const entry: ServiceEntry = { name, endpoint: obj.url };
+    if (typeof obj.description === "string") entry.description = obj.description;
+    return entry;
+  }
+
+  return null;
 }
 
 export function validateFetchedCard(raw: unknown): AgentCard {
@@ -124,6 +159,20 @@ export function validateFetchedCard(raw: unknown): AgentCard {
   };
   if (Array.isArray(obj.actions) && obj.actions.length > 0) {
     card.actions = obj.actions as ActionSchema[];
+  }
+  if (typeof obj.active === "boolean") card.active = obj.active;
+  if (typeof obj.updatedAt === "number") card.updatedAt = obj.updatedAt;
+  if (Array.isArray(obj.registrations)) {
+    const regs = (obj.registrations as unknown[]).flatMap((r): Registration[] => {
+      if (typeof r !== "object" || r === null) return [];
+      const rec = r as Record<string, unknown>;
+      if (typeof rec.agentRegistry !== "string") return [];
+      // Normalize missing or non-bigint agentId to null rather than leaving undefined
+      const rawId = rec.agentId;
+      const agentId: bigint | null = rawId === null || rawId === undefined ? null : BigInt(rawId as bigint);
+      return [{ agentId, agentRegistry: rec.agentRegistry }];
+    });
+    if (regs.length > 0) card.registrations = regs;
   }
   return card;
 }

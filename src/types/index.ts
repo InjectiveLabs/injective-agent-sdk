@@ -4,13 +4,26 @@ export const AGENT_TYPES: AgentType[] = ["trading", "liquidation", "data", "port
 export type ServiceType = "mcp" | "a2a" | "web" | "oasf" | "rest" | "grpc" | "webhook" | "custom";
 export const SERVICE_TYPES: ServiceType[] = ["mcp", "a2a", "web", "oasf", "rest", "grpc", "webhook", "custom"];
 
+export type ServiceName = "MCP" | "A2A" | "web" | "OASF" | "agentWallet" | "ENS" | "DID" | (string & {});
+
+export const LEGACY_SERVICE_NAME_MAP: Record<ServiceType, ServiceName> = {
+  mcp: "MCP", a2a: "A2A", oasf: "OASF", web: "web",
+  rest: "web", grpc: "web", webhook: "web", custom: "web",
+};
+
 export const AGENT_CARD_TYPE = "https://eips.ethereum.org/EIPS/eip-8004#registration-v1" as const;
 export const AGENT_CARD_TYPE_ALT = "https://erc8004.org/agent-card" as const;
 
 export interface ServiceEntry {
-  type: ServiceType;
-  url: string;
+  name: ServiceName;
+  endpoint: string;
   description?: string;
+  version?: string;
+}
+
+export interface Registration {
+  agentId: bigint | null;
+  agentRegistry: string; // CAIP-10: eip155:{chainId}:{registryAddress}
 }
 
 export interface AgentCard {
@@ -20,6 +33,9 @@ export interface AgentCard {
   services: ServiceEntry[];
   image: string;
   x402Support: boolean;
+  active?: boolean;
+  registrations?: Registration[];
+  updatedAt?: number;
   metadata: {
     chain: "injective";
     chainId: string;
@@ -62,7 +78,8 @@ export interface UpdateOptions {
   uri?: string;
   json?: boolean;
   services?: ServiceEntry[];
-  removeServices?: ServiceType[];
+  removeServices?: string[];
+  active?: boolean;
   image?: string;
   x402?: boolean;       // true = enable, false = disable, undefined = no change
 }

@@ -2,7 +2,7 @@
 import "dotenv/config";
 import { Command } from "commander";
 import {
-  AGENT_TYPES, SERVICE_TYPES,
+  AGENT_TYPES, SERVICE_TYPES, LEGACY_SERVICE_NAME_MAP,
   AgentSdkError, bigintReplacer, assertPublicUrl, ValidationError,
   DEFAULT_AUDIT_LOG_PATH,
 } from "@injective/agent-sdk";
@@ -33,34 +33,58 @@ function parseSignedBigInt(value: string, label: string): bigint {
 }
 
 function parseService(value: string, previous: ServiceEntry[]): ServiceEntry[] {
-  let parsed: { type?: string; url?: string; description?: string };
+  // NAME:URL shorthand — e.g., MCP:https://api.example.com/mcp
+  const colonIdx = value.indexOf(":");
+  if (colonIdx > 0 && value.substring(colonIdx + 1).startsWith("http")) {
+    const name = value.substring(0, colonIdx);
+    const endpoint = value.substring(colonIdx + 1);
+    try {
+      assertPublicUrl(endpoint, "Service URL");
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new Error(`Invalid service URL: "${endpoint}". Must be a valid public URL.`);
+    }
+    return [...previous, { name, endpoint }];
+  }
+
+  // JSON format (new or legacy)
+  let parsed: Record<string, string>;
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error('Service must be valid JSON: \'{"type":"mcp","url":"https://..."}\'');
+    throw new Error('Service must be NAME:URL (e.g., MCP:https://...) or JSON with "name"+"endpoint" or legacy "type"+"url".');
   }
-  if (!parsed.type || !parsed.url) {
-    throw new Error('Service JSON must include "type" and "url" fields.');
+
+  // New JSON format: name + endpoint
+  if (parsed.name && parsed.endpoint) {
+    try { assertPublicUrl(parsed.endpoint, "Service URL"); } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new Error(`Invalid service URL: "${parsed.endpoint}". Must be a valid public URL.`);
+    }
+    const entry: ServiceEntry = { name: parsed.name, endpoint: parsed.endpoint };
+    if (parsed.description) entry.description = parsed.description;
+    if (parsed.version) entry.version = parsed.version;
+    return [...previous, entry];
   }
-  if (!SERVICE_TYPES.includes(parsed.type as ServiceType)) {
-    throw new Error(`Invalid service type "${parsed.type}". Must be one of: ${SERVICE_TYPES.join(", ")}.`);
+
+  // Legacy JSON format: type + url → convert
+  if (parsed.type && parsed.url) {
+    try { assertPublicUrl(parsed.url, "Service URL"); } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new Error(`Invalid service URL: "${parsed.url}". Must be a valid public URL.`);
+    }
+    const name = LEGACY_SERVICE_NAME_MAP[parsed.type as ServiceType] ?? parsed.type;
+    const entry: ServiceEntry = { name, endpoint: parsed.url };
+    if (parsed.description) entry.description = parsed.description;
+    return [...previous, entry];
   }
-  try {
-    assertPublicUrl(parsed.url, "Service URL");
-  } catch (err) {
-    if (err instanceof ValidationError) throw err;
-    throw new Error(`Invalid service URL: "${parsed.url}". Must be a valid URL.`);
-  }
-  const entry: ServiceEntry = { type: parsed.type as ServiceType, url: parsed.url };
-  if (parsed.description) entry.description = parsed.description;
-  return [...previous, entry];
+
+  throw new Error('Service JSON must include "name"+"endpoint" or legacy "type"+"url" fields.');
 }
 
-function parseRemoveService(value: string, previous: ServiceType[]): ServiceType[] {
-  if (!SERVICE_TYPES.includes(value as ServiceType)) {
-    throw new Error(`Invalid service type "${value}". Must be one of: ${SERVICE_TYPES.join(", ")}.`);
-  }
-  return [...previous, value as ServiceType];
+function parseRemoveService(value: string, previous: string[]): string[] {
+  // Accept any service name — no enum validation since names are now freeform
+  return [...previous, value];
 }
 
 function handleError(error: unknown): never {
@@ -88,7 +112,7 @@ program
   .option("--gas-price <gwei>", "Gas price in gwei")
   .option("--dry-run", "Simulate the registration without sending transactions")
   .option("--json", "Output result as JSON")
-  .option("--service <json>", "Service endpoint as JSON (repeatable)", parseService, [])
+  .option("--service <json>", "Service as NAME:URL or JSON (repeatable, e.g. MCP:https://api.dev/mcp)", parseService, [])
   .option("--image <pathOrUrl>", "Agent image (local file path or URL)")
   .option("--x402", "Enable x402 payment support")
   .action(async (opts) => {
@@ -129,11 +153,13 @@ program
   .option("--uri <uri>", "New agent card URI")
   .option("--dry-run", "Simulate without broadcasting")
   .option("--json", "Output result as JSON")
-  .option("--service <json>", "Service endpoint as JSON (repeatable)", parseService, [])
-  .option("--remove-service <type>", "Remove a service by type (repeatable)", parseRemoveService, [])
+  .option("--service <json>", "Service as NAME:URL or JSON (repeatable, e.g. MCP:https://api.dev/mcp)", parseService, [])
+  .option("--remove-service <name>", "Remove a service by name (repeatable)", parseRemoveService, [])
   .option("--image <pathOrUrl>", "New agent image (local file path or URL)")
   .option("--x402", "Enable x402 payment support")
   .option("--no-x402", "Disable x402 payment support")
+  .option("--active", "Mark agent as active on 8004scan")
+  .option("--no-active", "Mark agent as inactive on 8004scan")
   .action(async (agentIdStr, opts) => {
     const agentId = parseBigInt(agentIdStr, "agent ID");
     const updateOpts = {
@@ -142,7 +168,7 @@ program
       dryRun: opts.dryRun,
       services: opts.service.length > 0 ? opts.service : undefined,
       removeServices: opts.removeService.length > 0 ? opts.removeService : undefined,
-      image: opts.image, x402: opts.x402,
+      image: opts.image, x402: opts.x402, active: opts.active,
     };
     // createClient resolves key (may prompt); errors exit via handleError so client is always defined below
     const client = await createClient(cliCallbacks, "cli").catch(handleError);

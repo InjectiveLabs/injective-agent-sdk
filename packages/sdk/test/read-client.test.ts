@@ -4,8 +4,10 @@ import { AgentReadClient } from "../src/read-client.js";
 const RPC_URL = "https://k8s.testnet.json-rpc.injective.network";
 const itLive = process.env.SKIP_LIVE_TESTS ? it.skip : it;
 
+// Live tests use staging — that's where agents 0-3 are registered.
+// Canonical testnet registry (0x8004A818...) has no agents yet.
 describe("AgentReadClient", () => {
-  const client = new AgentReadClient({ network: "testnet", rpcUrl: RPC_URL });
+  const client = new AgentReadClient({ network: "staging", rpcUrl: RPC_URL });
 
   itLive("ping returns true for reachable RPC", async () => {
     const result = await client.ping();
@@ -26,8 +28,8 @@ describe("AgentReadClient", () => {
   }, 15000);
 
   itLive("getStatus returns agent details", async () => {
-    const status = await client.getStatus(5n);
-    expect(status.agentId).toBe(5n);
+    const status = await client.getStatus(0n);
+    expect(status.agentId).toBe(0n); // agent 0 on staging
     expect(status.owner).toMatch(/^0x/);
     expect(status.identityTuple).toContain("eip155:1439");
   }, 15000);
@@ -58,14 +60,14 @@ describe("AgentReadClient", () => {
   }, 120000);
 
   itLive("getReputation returns score and count", async () => {
-    const rep = await client.getReputation(5n);
+    const rep = await client.getReputation(0n);
     expect(typeof rep.score).toBe("number");
     expect(typeof rep.count).toBe("number");
   }, 15000);
 
   itLive("getEnrichedAgent returns status + reputation", async () => {
-    const enriched = await client.getEnrichedAgent(5n);
-    expect(enriched.agentId).toBe(5n);
+    const enriched = await client.getEnrichedAgent(0n);
+    expect(enriched.agentId).toBe(0n);
     expect(enriched.reputation).toBeDefined();
     expect(typeof enriched.reputation.score).toBe("number");
   }, 30000);
@@ -80,7 +82,7 @@ describe("AgentReadClient", () => {
   // ─── Enhanced Reputation & Feedback ────────────────────────────
 
   itLive("getFeedbackEntries returns entries with feedbackIndex", async () => {
-    const entries = await client.getFeedbackEntries(5n);
+    const entries = await client.getFeedbackEntries(0n);
     if (entries.length > 0) {
       expect(entries[0]).toHaveProperty("feedbackIndex");
       expect(typeof entries[0].feedbackIndex).toBe("bigint");
@@ -88,7 +90,7 @@ describe("AgentReadClient", () => {
   }, 15000);
 
   itLive("getFeedbackEntries with no options behaves identically (backward compat)", async () => {
-    const entries = await client.getFeedbackEntries(5n);
+    const entries = await client.getFeedbackEntries(0n);
     for (const e of entries) {
       expect(e).toHaveProperty("client");
       expect(e).toHaveProperty("feedbackIndex");
@@ -101,13 +103,13 @@ describe("AgentReadClient", () => {
   }, 15000);
 
   itLive("getFeedbackEntries with includeRevoked returns all entries", async () => {
-    const withoutRevoked = await client.getFeedbackEntries(5n);
-    const withRevoked = await client.getFeedbackEntries(5n, { includeRevoked: true });
+    const withoutRevoked = await client.getFeedbackEntries(0n);
+    const withRevoked = await client.getFeedbackEntries(0n, { includeRevoked: true });
     expect(withRevoked.length).toBeGreaterThanOrEqual(withoutRevoked.length);
   }, 15000);
 
   itLive("getReputation returns clients array", async () => {
-    const rep = await client.getReputation(5n);
+    const rep = await client.getReputation(0n);
     expect(typeof rep.score).toBe("number");
     expect(typeof rep.count).toBe("number");
     expect(Array.isArray(rep.clients)).toBe(true);
@@ -120,7 +122,7 @@ describe("AgentReadClient", () => {
   }, 15000);
 
   itLive("getClients returns address array", async () => {
-    const clients = await client.getClients(5n);
+    const clients = await client.getClients(0n);
     expect(Array.isArray(clients)).toBe(true);
     if (clients.length > 0) {
       expect(clients[0]).toMatch(/^0x/);
