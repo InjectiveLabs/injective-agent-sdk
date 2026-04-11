@@ -32,6 +32,9 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
   if (opts.actions && opts.actions.length > 0) {
     card.actions = opts.actions;
   }
+  if (opts.supportedTrust && opts.supportedTrust.length > 0) {
+    card.supportedTrust = opts.supportedTrust;
+  }
   return card;
 }
 

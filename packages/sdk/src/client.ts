@@ -103,6 +103,7 @@ export class AgentClient {
       services: opts.services, image: resolvedImage, x402: opts.x402,
       chainId: this.config.chainId, actions: opts.actions,
       registryAddress: this.config.identityRegistry,
+      supportedTrust: opts.supportedTrust,
     });
 
     const metadata = [

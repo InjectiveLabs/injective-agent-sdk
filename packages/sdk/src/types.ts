@@ -129,6 +129,7 @@ export interface RegisterOptions {
   image?: string;
   x402?: boolean;
   actions?: ActionSchema[];
+  supportedTrust?: string[];
 }
 
 export interface RegisterResult {
@@ -240,6 +241,7 @@ export interface GenerateCardOptions {
   chainId?: number | string;
   actions?: ActionSchema[];
   registryAddress?: `0x${string}`;
+  supportedTrust?: string[];
 }
 
 export interface CardUpdates {
