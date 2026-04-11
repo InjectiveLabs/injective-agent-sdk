@@ -248,7 +248,7 @@ export class AgentClient {
     if (!opts.builderCode && !opts.type && !opts.uri && !opts.wallet &&
         !opts.name && !opts.description && !opts.services?.length &&
         !opts.removeServices?.length && !opts.image && opts.x402 === undefined &&
-        opts.active === undefined) {
+        opts.actions === undefined && opts.active === undefined) {
       throw new ValidationError("No fields to update. Provide at least one update option.");
     }
     if (opts.wallet && !isAddress(opts.wallet)) {
@@ -267,7 +267,7 @@ export class AgentClient {
     const hasCardChanges = !!(
       opts.name || opts.description || opts.services?.length ||
       opts.removeServices?.length || opts.image || opts.x402 !== undefined ||
-      opts.active !== undefined
+      opts.actions !== undefined || opts.active !== undefined
     );
 
     const [owner, tokenUri] = await Promise.all([
@@ -322,6 +322,7 @@ export class AgentClient {
           removeServices: opts.removeServices,
           image: resolvedImage,
           x402: opts.x402,
+          actions: opts.actions,
           active: opts.active,
         });
 

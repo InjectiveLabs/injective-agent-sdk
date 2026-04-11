@@ -146,6 +146,7 @@ export interface UpdateOptions {
   removeServices?: string[];
   image?: string;
   x402?: boolean;
+  actions?: ActionSchema[];
   allowFreshCard?: boolean;
   active?: boolean;
 }
