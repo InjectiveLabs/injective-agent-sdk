@@ -61,9 +61,8 @@ function parseService(value: string, previous: ServiceEntry[]): ServiceEntry[] {
       if (err instanceof ValidationError) throw err;
       throw new Error(`Invalid service URL: "${parsed.endpoint}". Must be a valid public URL.`);
     }
-    const entry: ServiceEntry = { name: parsed.name, endpoint: parsed.endpoint };
-    if (parsed.description) entry.description = parsed.description;
-    if (parsed.version) entry.version = parsed.version;
+    // Spread full object so extra protocol fields (OASF skills/domains, MCP tools, etc.) are preserved
+    const entry: ServiceEntry = { ...parsed, name: parsed.name, endpoint: parsed.endpoint };
     return [...previous, entry];
   }
 
@@ -160,6 +159,7 @@ program
   .option("--no-x402", "Disable x402 payment support")
   .option("--active", "Mark agent as active on 8004scan")
   .option("--no-active", "Mark agent as inactive on 8004scan")
+  .option("--supported-trust <value>", "Declare a trust model (repeatable: reputation, crypto-economic, tee-attestation)", (v: string, prev: string[]) => [...prev, v], [] as string[])
   .action(async (agentIdStr, opts) => {
     const agentId = parseBigInt(agentIdStr, "agent ID");
     const updateOpts = {
@@ -169,6 +169,7 @@ program
       services: opts.service.length > 0 ? opts.service : undefined,
       removeServices: opts.removeService.length > 0 ? opts.removeService : undefined,
       image: opts.image, x402: opts.x402, active: opts.active,
+      supportedTrust: (opts.supportedTrust as string[]).length > 0 ? opts.supportedTrust as string[] : undefined,
     };
     // createClient resolves key (may prompt); errors exit via handleError so client is always defined below
     const client = await createClient(cliCallbacks, "cli").catch(handleError);

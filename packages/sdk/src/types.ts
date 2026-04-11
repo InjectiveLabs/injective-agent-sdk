@@ -19,6 +19,8 @@ export interface ServiceEntry {
   endpoint: string;
   description?: string;
   version?: string;
+  /** Extra protocol-specific fields: OASF skills/domains, MCP mcpTools/mcpPrompts, A2A a2aSkills, etc. */
+  [key: string]: unknown;
 }
 
 export interface Registration {
@@ -100,6 +102,11 @@ export interface AgentCard {
   active?: boolean;
   registrations?: Registration[];
   updatedAt?: number;
+  /**
+   * Declared trust models the agent supports. Standard values:
+   * "reputation" | "crypto-economic" | "tee-attestation" | "social-graph"
+   */
+  supportedTrust?: string[];
   metadata: {
     chain: "injective";
     chainId: string;
@@ -149,6 +156,8 @@ export interface UpdateOptions {
   actions?: ActionSchema[];
   allowFreshCard?: boolean;
   active?: boolean;
+  /** Trust models to declare. Replaces existing supportedTrust array when provided. */
+  supportedTrust?: string[];
 }
 
 export interface DeregisterOptions {
@@ -242,6 +251,7 @@ export interface CardUpdates {
   x402?: boolean;
   actions?: ActionSchema[];
   active?: boolean;
+  supportedTrust?: string[];
 }
 
 // Discovery & listing

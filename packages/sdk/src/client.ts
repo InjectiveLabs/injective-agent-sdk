@@ -173,7 +173,9 @@ export class AgentClient {
       // here is a warning, not a fatal error. The caller still gets the agentId.
       if (card.registrations?.length && this.storage && !opts.uri && !opts.dryRun) {
         try {
-          card.registrations[0].agentId = agentId;
+          // Convert to number for JSON serialization — agentIds are small
+          // integers that will never overflow Number.MAX_SAFE_INTEGER.
+          (card.registrations[0] as any).agentId = Number(agentId);
           card.updatedAt = Math.floor(Date.now() / 1000);
           this.callbacks.onProgress?.("Re-uploading card with confirmed agentId...");
           const updatedUri = await this.storage.uploadJSON(card, card.name);
@@ -248,7 +250,8 @@ export class AgentClient {
     if (!opts.builderCode && !opts.type && !opts.uri && !opts.wallet &&
         !opts.name && !opts.description && !opts.services?.length &&
         !opts.removeServices?.length && !opts.image && opts.x402 === undefined &&
-        opts.actions === undefined && opts.active === undefined) {
+        opts.actions === undefined && opts.active === undefined &&
+        opts.supportedTrust === undefined) {
       throw new ValidationError("No fields to update. Provide at least one update option.");
     }
     if (opts.wallet && !isAddress(opts.wallet)) {
@@ -324,6 +327,7 @@ export class AgentClient {
           x402: opts.x402,
           actions: opts.actions,
           active: opts.active,
+          supportedTrust: opts.supportedTrust,
         });
 
         if (!this.storage) throw new StorageError("No storage provider configured. Provide a uri or configure a StorageProvider.");

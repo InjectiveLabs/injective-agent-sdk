@@ -49,6 +49,7 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
     updates.image !== undefined ||
     updates.x402 !== undefined ||
     updates.active !== undefined ||
+    updates.supportedTrust !== undefined ||
     (updates.services?.length ?? 0) > 0 ||
     (updates.removeServices?.length ?? 0) > 0 ||
     updates.actions !== undefined;
@@ -58,6 +59,7 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
   if (updates.image !== undefined) card.image = updates.image;
   if (updates.x402 !== undefined) card.x402Support = updates.x402;
   if (updates.active !== undefined) card.active = updates.active;
+  if (updates.supportedTrust !== undefined) card.supportedTrust = updates.supportedTrust;
 
   // Only bump updatedAt when something actually changed
   if (hasChanges) card.updatedAt = Math.floor(Date.now() / 1000);
@@ -104,6 +106,9 @@ export async function checkServiceReachability(url: string): Promise<string | nu
   }
 }
 
+/** Field names handled explicitly — all others are passed through as extra protocol-specific data. */
+const KNOWN_SERVICE_FIELDS = new Set(["name", "endpoint", "description", "version", "type", "url"]);
+
 export function validateServiceEntry(raw: unknown): ServiceEntry | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
@@ -113,6 +118,10 @@ export function validateServiceEntry(raw: unknown): ServiceEntry | null {
     const entry: ServiceEntry = { name: obj.name, endpoint: obj.endpoint };
     if (typeof obj.description === "string") entry.description = obj.description;
     if (typeof obj.version === "string") entry.version = obj.version;
+    // Preserve extra protocol-specific fields (OASF skills/domains, MCP tools, A2A skills, etc.)
+    for (const [key, value] of Object.entries(obj)) {
+      if (!KNOWN_SERVICE_FIELDS.has(key)) entry[key] = value;
+    }
     return entry;
   }
 
@@ -121,6 +130,9 @@ export function validateServiceEntry(raw: unknown): ServiceEntry | null {
     const name = LEGACY_SERVICE_NAME_MAP[obj.type as ServiceType] ?? obj.type;
     const entry: ServiceEntry = { name, endpoint: obj.url };
     if (typeof obj.description === "string") entry.description = obj.description;
+    for (const [key, value] of Object.entries(obj)) {
+      if (!KNOWN_SERVICE_FIELDS.has(key)) entry[key] = value;
+    }
     return entry;
   }
 
@@ -162,6 +174,9 @@ export function validateFetchedCard(raw: unknown): AgentCard {
   }
   if (typeof obj.active === "boolean") card.active = obj.active;
   if (typeof obj.updatedAt === "number") card.updatedAt = obj.updatedAt;
+  if (Array.isArray(obj.supportedTrust) && obj.supportedTrust.every(t => typeof t === "string")) {
+    card.supportedTrust = obj.supportedTrust as string[];
+  }
   if (Array.isArray(obj.registrations)) {
     const regs = (obj.registrations as unknown[]).flatMap((r): Registration[] => {
       if (typeof r !== "object" || r === null) return [];
