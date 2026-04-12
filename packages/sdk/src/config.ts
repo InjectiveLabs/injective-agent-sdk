@@ -36,7 +36,7 @@ export const MAINNET: NetworkConfig = {
   reputationRegistry: "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
   validationRegistry: "0x0000000000000000000000000000000000000000",
   ipfsGateway: DEFAULT_IPFS_GATEWAY,
-  deployBlock: 105000000n,
+  deployBlock: 162000000n,
 };
 
 const NETWORKS: Record<string, NetworkConfig> = { staging: STAGING, testnet: TESTNET, mainnet: MAINNET };

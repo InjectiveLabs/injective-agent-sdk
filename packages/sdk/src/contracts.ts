@@ -1,6 +1,46 @@
-import { createPublicClient, createWalletClient, http, getContract, encodeAbiParameters, decodeAbiParameters, parseAbiParameters } from "viem";
+import { createPublicClient, createWalletClient, http, custom, getContract, encodeAbiParameters, decodeAbiParameters, parseAbiParameters, encodeFunctionData } from "viem";
 import type { LocalAccount } from "viem/accounts";
 import type { NetworkConfig } from "./types.js";
+
+/**
+ * Injective's EVM RPC returns 0 for eth_getBalance even when the account has a
+ * non-zero native bank balance. viem's writeContract does a client-side preflight
+ * check using eth_getBalance and aborts with "total cost exceeds balance" before
+ * the transaction ever reaches the node — which enforces the real balance check.
+ *
+ * This transport wraps every RPC call normally, but when eth_getBalance returns
+ * 0x0 it substitutes a 10 INJ placeholder so the preflight passes. The node
+ * still validates the actual bank balance when it receives eth_sendRawTransaction.
+ */
+async function rpcFetch(url: string, method: string, params: unknown[]): Promise<unknown> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
+  const body = await res.json() as { result?: unknown; error?: { code: number; message: string } };
+  if (body.error) {
+    const err = new Error(body.error.message) as Error & { code?: number };
+    err.code = body.error.code;
+    throw err;
+  }
+  return body.result;
+}
+
+function createInjectiveTransport(url: string) {
+  return custom({
+    async request({ method, params }: { method: string; params?: unknown[] }) {
+      const result = await rpcFetch(url, method, params ?? []);
+      if (method === "eth_getBalance" && (result === "0x0" || result === "0x" || !result)) {
+        // Return 10 INJ as a placeholder balance for the preflight check.
+        // The real bank balance is validated by the node on broadcast.
+        return "0x8AC7230489E80000";
+      }
+      return result;
+    },
+  });
+}
 import IdentityRegistryABI from "./abi/IdentityRegistry.json" with { type: "json" };
 import ReputationRegistryABI from "./abi/ReputationRegistry.json" with { type: "json" };
 
@@ -17,8 +57,9 @@ function makeChain(config: NetworkConfig) {
 
 export function createClients(config: NetworkConfig, account: LocalAccount) {
   const chain = makeChain(config);
-  const publicClient = createPublicClient({ chain, transport: http(config.rpcUrl) });
-  const walletClient = createWalletClient({ chain, account, transport: http(config.rpcUrl) });
+  const transport = createInjectiveTransport(config.rpcUrl);
+  const publicClient = createPublicClient({ chain, transport });
+  const walletClient = createWalletClient({ chain, account, transport });
   const identityRegistry = getContract({
     address: config.identityRegistry,
     abi: IdentityRegistryABI,
@@ -45,6 +86,84 @@ export function createReadOnlyClients(config: NetworkConfig) {
 
 export function encodeStringMetadata(value: string): `0x${string}` {
   return encodeAbiParameters(parseAbiParameters("string"), [value]);
+}
+
+/**
+ * Sign and broadcast a contract write without viem's preflight balance check.
+ *
+ * viem's writeContract calls prepareTransactionRequest → assertRequest which
+ * checks eth_getBalance before sending. On Injective mainnet, eth_getBalance
+ * returns 0 even when the account has a non-zero bank balance, causing a false
+ * "total cost exceeds balance" rejection before the transaction ever reaches
+ * the node.
+ *
+ * This helper bypasses that check by going directly:
+ *   encodeFunctionData → account.signTransaction → eth_sendRawTransaction
+ */
+export async function writeContractDirect(params: {
+  publicClient:  ReturnType<typeof createPublicClient>;
+  account:       LocalAccount;
+  chainId:       number;
+  address:       `0x${string}`;
+  abi:           unknown[];
+  functionName:  string;
+  args:          readonly unknown[];
+  nonce:         number;
+  gasPrice:      bigint;
+  gas:           bigint;
+  rpcUrl?:       string;
+  value?:        bigint;
+}): Promise<`0x${string}`> {
+  const data = encodeFunctionData({
+    abi:          params.abi as any,
+    functionName: params.functionName,
+    args:         params.args as any,
+  });
+
+  // Injective mainnet requires EIP-1559 (type-2) transactions.
+  // Setting maxFeePerGas = maxPriorityFeePerGas = gasPrice gives us
+  // predictable fee behaviour equivalent to a legacy transaction.
+  //
+  // We sign + sendRawTransaction directly (bypassing walletClient.writeContract)
+  // to avoid viem's client-side eth_getBalance preflight, which returns 0 on
+  // Injective's EVM RPC even when the bank balance is non-zero.
+  const signedTx = await params.account.signTransaction({
+    to:                   params.address,
+    data,
+    gas:                  params.gas,
+    maxFeePerGas:         params.gasPrice,
+    maxPriorityFeePerGas: params.gasPrice,
+    nonce:                params.nonce,
+    chainId:              params.chainId,
+    value:                params.value ?? 0n,
+    type:                 "eip1559",
+  });
+
+  // Send via raw JSON-RPC fetch, bypassing viem's client-side checks entirely.
+  const rpcUrl = params.rpcUrl ?? (params.publicClient.transport as any)?.url;
+  if (rpcUrl) {
+    const body = JSON.stringify({
+      jsonrpc: "2.0", id: Date.now(),
+      method: "eth_sendRawTransaction",
+      params: [signedTx],
+    });
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    const json = await res.json() as { result?: string; error?: { code: number; message: string; data?: string } };
+    if (json.error) {
+      const detail = json.error.data ? ` (data: ${json.error.data})` : "";
+      throw new Error(
+        `eth_sendRawTransaction failed [${json.error.code}]: ${json.error.message}${detail}\n` +
+        `  tx prefix: ${signedTx.slice(0, 12)}... len: ${signedTx.length}\n` +
+        `  nonce: ${params.nonce}, chainId: ${params.chainId}, gas: ${params.gas}, gasPrice: ${params.gasPrice}`
+      );
+    }
+    return json.result as `0x${string}`;
+  }
+  return params.publicClient.sendRawTransaction({ serializedTransaction: signedTx });
 }
 
 export function decodeStringMetadata(raw: `0x${string}`): string {

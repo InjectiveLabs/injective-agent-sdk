@@ -92,6 +92,8 @@ export interface ActionSchema {
 
 export interface AgentCard {
   type: string;
+  /** Agent type at top level — must match on-chain agentType metadata to avoid WA080. */
+  agentType?: AgentType;
   name: string;
   description?: string;
   services: ServiceEntry[];
@@ -107,6 +109,16 @@ export interface AgentCard {
    * "reputation" | "crypto-economic" | "tee-attestation" | "social-graph"
    */
   supportedTrust?: string[];
+  /** Searchable tags for discovery (e.g. ["defi", "trading", "grid"]). */
+  tags?: string[];
+  /** Semantic version string (e.g. "1.0.0"). */
+  version?: string;
+  /** SPDX license identifier (e.g. "MIT", "Apache-2.0"). */
+  license?: string;
+  /** URL to the agent's source code repository. */
+  sourceCode?: string;
+  /** URL to the agent's documentation. */
+  documentation?: string;
   metadata: {
     chain: "injective";
     chainId: string;
@@ -130,6 +142,11 @@ export interface RegisterOptions {
   x402?: boolean;
   actions?: ActionSchema[];
   supportedTrust?: string[];
+  tags?: string[];
+  version?: string;
+  license?: string;
+  sourceCode?: string;
+  documentation?: string;
 }
 
 export interface RegisterResult {
@@ -159,6 +176,11 @@ export interface UpdateOptions {
   active?: boolean;
   /** Trust models to declare. Replaces existing supportedTrust array when provided. */
   supportedTrust?: string[];
+  tags?: string[];
+  version?: string;
+  license?: string;
+  sourceCode?: string;
+  documentation?: string;
 }
 
 export interface DeregisterOptions {
@@ -242,6 +264,11 @@ export interface GenerateCardOptions {
   actions?: ActionSchema[];
   registryAddress?: `0x${string}`;
   supportedTrust?: string[];
+  tags?: string[];
+  version?: string;
+  license?: string;
+  sourceCode?: string;
+  documentation?: string;
 }
 
 export interface CardUpdates {
@@ -254,6 +281,11 @@ export interface CardUpdates {
   actions?: ActionSchema[];
   active?: boolean;
   supportedTrust?: string[];
+  tags?: string[];
+  version?: string;
+  license?: string;
+  sourceCode?: string;
+  documentation?: string;
 }
 
 // Discovery & listing

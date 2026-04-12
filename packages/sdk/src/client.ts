@@ -7,7 +7,7 @@ import type {
 import { AGENT_TYPES } from "./types.js";
 import { resolveNetworkConfig } from "./config.js";
 import { resolveKey, signWalletLink, type ResolvedKey } from "./wallet.js";
-import { createClients, createReadOnlyClients, encodeStringMetadata, identityTuple, walletLinkDeadline, ReputationRegistryABI } from "./contracts.js";
+import { createClients, createReadOnlyClients, encodeStringMetadata, identityTuple, walletLinkDeadline, ReputationRegistryABI, writeContractDirect } from "./contracts.js";
 import { generateAgentCard, mergeAgentCard, fetchAgentCard, checkServiceReachability } from "./card.js";
 import { AgentReadClient } from "./read-client.js";
 import { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
@@ -16,6 +16,25 @@ import { simulateOnly } from "./simulate.js";
 import { AuditLogger } from "./audit.js";
 import { validateStringField, VALIDATION_LIMITS } from "./validation.js";
 import { isAddress, keccak256, toHex, decodeEventLog } from "viem";
+
+// Injective's EVM RPC returns ~160_000_000 (0.16 gwei) for eth_gasPrice.
+// Only fall back to the default when the RPC returns literal 0.
+const DEFAULT_GAS_PRICE = 160_000_000n; // 0.16 gwei — matches Injective mainnet eth_gasPrice
+const MIN_VALID_GAS_PRICE = 1n; // treat anything > 0 as valid; only reject literal 0
+
+/** Fetch gas price from the RPC; fall back to DEFAULT_GAS_PRICE if the node returns 0. */
+async function resolveGasPrice(
+  publicClient: { getGasPrice: () => Promise<bigint> },
+  override?: bigint,
+): Promise<bigint> {
+  if (override !== undefined) return override;
+  try {
+    const price = await publicClient.getGasPrice();
+    return price >= MIN_VALID_GAS_PRICE ? price : DEFAULT_GAS_PRICE;
+  } catch {
+    return DEFAULT_GAS_PRICE;
+  }
+}
 
 const REGISTERED_EVENT_TOPIC = keccak256(toHex("Registered(uint256,string,address)"));
 const NEW_FEEDBACK_EVENT_TOPIC = keccak256(
@@ -88,7 +107,7 @@ export class AgentClient {
     validateStringField(opts.builderCode, "builderCode", VALIDATION_LIMITS.BUILDER_CODE_MAX_BYTES, true);
     if (!isAddress(opts.wallet)) throw new ValidationError(`Invalid wallet address: ${opts.wallet}. Must be a checksummed 0x address.`);
 
-    const { publicClient, walletClient, identityRegistry, account } = this.clients;
+    const { publicClient, identityRegistry, account } = this.clients;
 
     const [resolvedImage] = opts.dryRun
       ? [undefined]
@@ -104,12 +123,19 @@ export class AgentClient {
       chainId: this.config.chainId, actions: opts.actions,
       registryAddress: this.config.identityRegistry,
       supportedTrust: opts.supportedTrust,
+      tags: opts.tags, version: opts.version, license: opts.license,
+      sourceCode: opts.sourceCode, documentation: opts.documentation,
     });
 
     const metadata = [
       { metadataKey: "builderCode", metadataValue: encodeStringMetadata(opts.builderCode) },
       { metadataKey: "agentType", metadataValue: encodeStringMetadata(opts.type) },
     ];
+    if (opts.version) metadata.push({ metadataKey: "version", metadataValue: encodeStringMetadata(opts.version) });
+    if (opts.license) metadata.push({ metadataKey: "license", metadataValue: encodeStringMetadata(opts.license) });
+    if (opts.sourceCode) metadata.push({ metadataKey: "sourceCode", metadataValue: encodeStringMetadata(opts.sourceCode) });
+    if (opts.documentation) metadata.push({ metadataKey: "documentation", metadataValue: encodeStringMetadata(opts.documentation) });
+    if (opts.tags && opts.tags.length > 0) metadata.push({ metadataKey: "tags", metadataValue: encodeStringMetadata(opts.tags.join(",")) });
 
     let cardUri: string;
     if (opts.uri) {
@@ -138,7 +164,11 @@ export class AgentClient {
 
     let nonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
     const txHashes: `0x${string}`[] = [];
-    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : await resolveGasPrice(publicClient);
+    const evmBalance = await publicClient.getBalance({ address: this.key.address });
+    this.callbacks.onProgress?.(
+      `Gas price: ${gasPrice / BigInt(1e9)} gwei | EVM balance: ${evmBalance} wei (${Number(evmBalance) / 1e18} INJ)`
+    );
     const startMs = Date.now();
     const registerAuditArgs = AuditLogger.sanitizeArgs("register", [cardUri, metadata]);
 
@@ -149,10 +179,20 @@ export class AgentClient {
       this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "register", args: registerAuditArgs,
         simulation: { passed: true, gasEstimate: String(registerSim.gasEstimate) }, durationMs: Date.now() - startMs });
 
-      this.callbacks.onProgress?.("Broadcasting register...");
-      const registerHash = await walletClient.writeContract({
-        ...baseParams, functionName: "register", args: [cardUri, metadata] as unknown[],
-        nonce: nonce++, gasPrice, gas: 500_000n,
+      // Use estimate + 20% buffer as the gas limit for broadcast.
+      const registerGasLimit = registerSim.gasEstimate > 0n
+        ? registerSim.gasEstimate * 12n / 10n
+        : 500_000n;
+      const registerCost = registerGasLimit * gasPrice;
+      this.callbacks.onProgress?.(
+        `Broadcasting register (gas limit: ${registerGasLimit}, cost: ${registerCost} wei = ${Number(registerCost) / 1e18} INJ)...`
+      );
+      const registerHash = await writeContractDirect({
+        publicClient, account, chainId: this.config.chainId,
+        address: baseParams.address, abi: baseParams.abi as unknown[],
+        functionName: "register", args: [cardUri, metadata],
+        nonce: nonce++, gasPrice, gas: registerGasLimit,
+        rpcUrl: this.config.rpcUrl,
       });
       txHashes.push(registerHash);
       this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "register", args: registerAuditArgs,
@@ -184,9 +224,12 @@ export class AgentClient {
             const setUriArgs = [agentId, updatedUri] as const;
             const setUriAuditArgs = AuditLogger.sanitizeArgs("setAgentURI", setUriArgs);
             this.callbacks.onProgress?.("Broadcasting setAgentURI...");
-            const setUriHash = await walletClient.writeContract({
-              ...baseParams, functionName: "setAgentURI", args: setUriArgs as unknown as unknown[],
-              nonce: nonce++, gasPrice, gas: 200_000n,
+            const setUriHash = await writeContractDirect({
+              publicClient, account, chainId: this.config.chainId,
+              address: baseParams.address, abi: baseParams.abi as unknown[],
+              functionName: "setAgentURI", args: setUriArgs,
+              nonce: nonce++, gasPrice, gas: 100_000n,
+              rpcUrl: this.config.rpcUrl,
             });
             txHashes.push(setUriHash);
             this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "setAgentURI", args: setUriAuditArgs,
@@ -219,10 +262,14 @@ export class AgentClient {
         this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "setAgentWallet", args: walletAuditArgs,
           simulation: { passed: true, gasEstimate: String(walletSim.gasEstimate) }, durationMs: Date.now() - startMs });
 
+        const walletGasLimit = walletSim.gasEstimate > 0n ? walletSim.gasEstimate * 12n / 10n : 300_000n;
         this.callbacks.onProgress?.("Broadcasting setAgentWallet...");
-        const walletHash = await walletClient.writeContract({
-          ...baseParams, functionName: "setAgentWallet", args: walletArgs as unknown as unknown[],
-          nonce: nonce++, gasPrice, gas: 300_000n,
+        const walletHash = await writeContractDirect({
+          publicClient, account, chainId: this.config.chainId,
+          address: baseParams.address, abi: baseParams.abi as unknown[],
+          functionName: "setAgentWallet", args: walletArgs,
+          nonce: nonce++, gasPrice, gas: walletGasLimit,
+          rpcUrl: this.config.rpcUrl,
         });
         txHashes.push(walletHash);
         this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "setAgentWallet", args: walletAuditArgs,
@@ -252,7 +299,9 @@ export class AgentClient {
         !opts.name && !opts.description && !opts.services?.length &&
         !opts.removeServices?.length && !opts.image && opts.x402 === undefined &&
         opts.actions === undefined && opts.active === undefined &&
-        opts.supportedTrust === undefined) {
+        opts.supportedTrust === undefined &&
+        opts.tags === undefined && !opts.version && !opts.license &&
+        !opts.sourceCode && !opts.documentation) {
       throw new ValidationError("No fields to update. Provide at least one update option.");
     }
     if (opts.wallet && !isAddress(opts.wallet)) {
@@ -265,13 +314,15 @@ export class AgentClient {
     validateStringField(opts.description, "description", VALIDATION_LIMITS.DESCRIPTION_MAX_BYTES, false);
     validateStringField(opts.builderCode, "builderCode", VALIDATION_LIMITS.BUILDER_CODE_MAX_BYTES, false);
 
-    const { publicClient, walletClient, identityRegistry } = this.clients;
+    const { publicClient, identityRegistry, account } = this.clients;
     const contractArgs = { address: this.config.identityRegistry, abi: identityRegistry.abi } as const;
 
     const hasCardChanges = !!(
       opts.name || opts.description || opts.services?.length ||
       opts.removeServices?.length || opts.image || opts.x402 !== undefined ||
-      opts.actions !== undefined || opts.active !== undefined
+      opts.actions !== undefined || opts.active !== undefined ||
+      opts.tags !== undefined || opts.version || opts.license ||
+      opts.sourceCode || opts.documentation
     );
 
     const [owner, tokenUri] = await Promise.all([
@@ -329,6 +380,11 @@ export class AgentClient {
           actions: opts.actions,
           active: opts.active,
           supportedTrust: opts.supportedTrust,
+          tags: opts.tags,
+          version: opts.version,
+          license: opts.license,
+          sourceCode: opts.sourceCode,
+          documentation: opts.documentation,
         });
 
         if (!this.storage) throw new StorageError("No storage provider configured. Provide a uri or configure a StorageProvider.");
@@ -337,7 +393,9 @@ export class AgentClient {
       }
     }
 
-    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    // Fetch gas price once and reuse for all transactions in this call.
+    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : await resolveGasPrice(publicClient);
+    this.callbacks.onProgress?.(`Using gas price: ${gasPrice / BigInt(1e9)} gwei`);
     const startMs = Date.now();
     const simBaseParams = { ...contractArgs, abi: identityRegistry.abi as unknown[], account: this.clients.account };
 
@@ -353,6 +411,21 @@ export class AgentClient {
     }
     if (opts.type) {
       plannedWrites.push({ functionName: "setMetadata", args: [agentId, "agentType", encodeStringMetadata(opts.type)], field: "agentType" });
+    }
+    if (opts.version) {
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "version", encodeStringMetadata(opts.version)], field: "version" });
+    }
+    if (opts.license) {
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "license", encodeStringMetadata(opts.license)], field: "license" });
+    }
+    if (opts.sourceCode) {
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "sourceCode", encodeStringMetadata(opts.sourceCode)], field: "sourceCode" });
+    }
+    if (opts.documentation) {
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "documentation", encodeStringMetadata(opts.documentation)], field: "documentation" });
+    }
+    if (opts.tags && opts.tags.length > 0) {
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "tags", encodeStringMetadata(opts.tags.join(","))], field: "tags" });
     }
     const effectiveUri = opts.uri ?? newCardUri;
     if (effectiveUri) {
@@ -399,12 +472,17 @@ export class AgentClient {
 
       for (let i = 0; i < plannedWrites.length; i++) {
         const write = plannedWrites[i];
+        // Use simulation estimate + 20% buffer to avoid over-reserving gas at high gas prices.
+        const gasLimit = simulations[i].gasEstimate > 0n
+          ? simulations[i].gasEstimate * 12n / 10n
+          : (write.gas ?? 300_000n);
         this.callbacks.onProgress?.(`Broadcasting ${write.functionName}...`);
-        const hash = await walletClient.writeContract({
-          ...contractArgs, abi: identityRegistry.abi as unknown[],
-          functionName: write.functionName, args: write.args as unknown[],
-          account: this.clients.account,
-          nonce: nonce++, gasPrice, gas: write.gas,
+        const hash = await writeContractDirect({
+          publicClient, account, chainId: this.config.chainId,
+          address: contractArgs.address, abi: identityRegistry.abi as unknown[],
+          functionName: write.functionName, args: write.args,
+          nonce: nonce++, gasPrice, gas: gasLimit,
+          rpcUrl: this.config.rpcUrl,
         });
         txHashes.push(hash);
         this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: write.functionName, args: writeAuditArgs[i],
@@ -429,8 +507,8 @@ export class AgentClient {
   }
 
   async deregister(agentId: bigint, opts?: DeregisterOptions): Promise<DeregisterResult> {
-    const { publicClient, walletClient, identityRegistry, account } = this.clients;
-    const gasPrice = opts?.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const { publicClient, identityRegistry, account } = this.clients;
+    const gasPrice = opts?.gasPrice ? opts.gasPrice * BigInt(1e9) : await resolveGasPrice(publicClient);
     const startMs = Date.now();
     const deregAuditArgs = AuditLogger.sanitizeArgs("deregister", [agentId]);
 
@@ -453,11 +531,15 @@ export class AgentClient {
       this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "deregister", args: deregAuditArgs,
         simulation: { passed: true, gasEstimate: String(sim.gasEstimate) }, durationMs: Date.now() - startMs });
 
+      const deregNonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
+      const deregGasLimit = sim.gasEstimate > 0n ? sim.gasEstimate * 12n / 10n : 200_000n;
       this.callbacks.onProgress?.("Broadcasting deregister...");
-      const hash = await walletClient.writeContract({
-        address: baseParams.address, abi: baseParams.abi,
-        functionName: "deregister", args: [agentId] as unknown[],
-        account, gasPrice,
+      const hash = await writeContractDirect({
+        publicClient, account, chainId: this.config.chainId,
+        address: baseParams.address, abi: baseParams.abi as unknown[],
+        functionName: "deregister", args: [agentId],
+        nonce: deregNonce, gasPrice, gas: deregGasLimit,
+        rpcUrl: this.config.rpcUrl,
       });
       this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "deregister", args: deregAuditArgs,
         simulation: { passed: true, gasEstimate: String(sim.gasEstimate) },
@@ -488,14 +570,14 @@ export class AgentClient {
     validateStringField(opts.endpoint, "endpoint", VALIDATION_LIMITS.ENDPOINT_MAX_BYTES, false);
     validateStringField(opts.feedbackURI, "feedbackURI", VALIDATION_LIMITS.FEEDBACK_URI_MAX_BYTES, false);
 
-    const { publicClient, walletClient, account } = this.clients;
+    const { publicClient, account } = this.clients;
     const { agentId, value } = opts;
     const tag1 = opts.tag1 ?? "";
     const tag2 = opts.tag2 ?? "";
     const endpoint = opts.endpoint ?? "";
     const feedbackURI = opts.feedbackURI ?? "";
     const feedbackHash = opts.feedbackHash ?? (`0x${"0".repeat(64)}` as `0x${string}`);
-    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : await resolveGasPrice(publicClient);
     const startMs = Date.now();
     const args = [agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash] as const;
     const auditArgs = AuditLogger.sanitizeArgs("giveFeedback", args);
@@ -519,11 +601,15 @@ export class AgentClient {
       this.audit.log({ event: "tx:simulate", ...this.reputationAuditBase, method: "giveFeedback", args: auditArgs,
         simulation: { passed: true, gasEstimate: String(sim.gasEstimate) }, durationMs: Date.now() - startMs });
 
+      const feedbackNonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
+      const feedbackGasLimit = sim.gasEstimate > 0n ? sim.gasEstimate * 12n / 10n : 300_000n;
       this.callbacks.onProgress?.("Broadcasting giveFeedback...");
-      const hash = await walletClient.writeContract({
-        address: baseParams.address, abi: baseParams.abi,
-        functionName: "giveFeedback", args: [...args] as unknown[],
-        account, gasPrice,
+      const hash = await writeContractDirect({
+        publicClient, account, chainId: this.config.chainId,
+        address: baseParams.address, abi: baseParams.abi as unknown[],
+        functionName: "giveFeedback", args: [...args],
+        nonce: feedbackNonce, gasPrice, gas: feedbackGasLimit,
+        rpcUrl: this.config.rpcUrl,
       });
       this.audit.log({ event: "tx:broadcast", ...this.reputationAuditBase, method: "giveFeedback", args: auditArgs,
         simulation: { passed: true, gasEstimate: String(sim.gasEstimate) },
@@ -560,9 +646,9 @@ export class AgentClient {
   }
 
   async revokeFeedback(opts: RevokeFeedbackOptions): Promise<RevokeFeedbackResult> {
-    const { publicClient, walletClient, account } = this.clients;
+    const { publicClient, account } = this.clients;
     const { agentId, feedbackIndex } = opts;
-    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined;
+    const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : await resolveGasPrice(publicClient);
     const startMs = Date.now();
     const auditArgs = AuditLogger.sanitizeArgs("revokeFeedback", [agentId, feedbackIndex]);
 
@@ -585,11 +671,15 @@ export class AgentClient {
       this.audit.log({ event: "tx:simulate", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs,
         simulation: { passed: true, gasEstimate: String(sim.gasEstimate) }, durationMs: Date.now() - startMs });
 
+      const revokeNonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
+      const revokeGasLimit = sim.gasEstimate > 0n ? sim.gasEstimate * 12n / 10n : 200_000n;
       this.callbacks.onProgress?.("Broadcasting revokeFeedback...");
-      const hash = await walletClient.writeContract({
-        address: baseParams.address, abi: baseParams.abi,
-        functionName: "revokeFeedback", args: [agentId, feedbackIndex] as unknown[],
-        account, gasPrice,
+      const hash = await writeContractDirect({
+        publicClient, account, chainId: this.config.chainId,
+        address: baseParams.address, abi: baseParams.abi as unknown[],
+        functionName: "revokeFeedback", args: [agentId, feedbackIndex],
+        nonce: revokeNonce, gasPrice, gas: revokeGasLimit,
+        rpcUrl: this.config.rpcUrl,
       });
       this.audit.log({ event: "tx:broadcast", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs,
         simulation: { passed: true, gasEstimate: String(sim.gasEstimate) },

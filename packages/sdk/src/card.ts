@@ -5,7 +5,8 @@ import { ValidationError } from "./errors.js";
 
 export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
   const card: AgentCard = {
-    type: AGENT_CARD_TYPE,
+    type: opts.type,
+    agentType: opts.type,
     name: opts.name,
     services: opts.services ?? [],
     image: opts.image ?? "",
@@ -35,6 +36,11 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
   if (opts.supportedTrust && opts.supportedTrust.length > 0) {
     card.supportedTrust = opts.supportedTrust;
   }
+  if (opts.tags && opts.tags.length > 0) card.tags = opts.tags;
+  if (opts.version) card.version = opts.version;
+  if (opts.license) card.license = opts.license;
+  if (opts.sourceCode) card.sourceCode = opts.sourceCode;
+  if (opts.documentation) card.documentation = opts.documentation;
   return card;
 }
 
@@ -53,6 +59,11 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
     updates.x402 !== undefined ||
     updates.active !== undefined ||
     updates.supportedTrust !== undefined ||
+    updates.tags !== undefined ||
+    updates.version !== undefined ||
+    updates.license !== undefined ||
+    updates.sourceCode !== undefined ||
+    updates.documentation !== undefined ||
     (updates.services?.length ?? 0) > 0 ||
     (updates.removeServices?.length ?? 0) > 0 ||
     updates.actions !== undefined;
@@ -63,6 +74,11 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
   if (updates.x402 !== undefined) card.x402Support = updates.x402;
   if (updates.active !== undefined) card.active = updates.active;
   if (updates.supportedTrust !== undefined) card.supportedTrust = updates.supportedTrust;
+  if (updates.tags !== undefined) card.tags = updates.tags;
+  if (updates.version !== undefined) card.version = updates.version;
+  if (updates.license !== undefined) card.license = updates.license;
+  if (updates.sourceCode !== undefined) card.sourceCode = updates.sourceCode;
+  if (updates.documentation !== undefined) card.documentation = updates.documentation;
 
   // Only bump updatedAt when something actually changed
   if (hasChanges) card.updatedAt = Math.floor(Date.now() / 1000);
@@ -154,7 +170,7 @@ export function validateFetchedCard(raw: unknown): AgentCard {
     ? obj.metadata as Record<string, unknown>
     : null;
   const card: AgentCard = {
-    type: typeof obj.type === "string" ? obj.type : AGENT_CARD_TYPE,
+    type: typeof obj.type === "string" ? obj.type : "other",
     name: obj.name,
     description: typeof obj.description === "string" ? obj.description : undefined,
     services: Array.isArray(obj.services)
@@ -175,19 +191,28 @@ export function validateFetchedCard(raw: unknown): AgentCard {
   if (Array.isArray(obj.actions) && obj.actions.length > 0) {
     card.actions = obj.actions as ActionSchema[];
   }
+  if (typeof obj.agentType === "string") card.agentType = obj.agentType as AgentType;
   if (typeof obj.active === "boolean") card.active = obj.active;
   if (typeof obj.updatedAt === "number") card.updatedAt = obj.updatedAt;
   if (Array.isArray(obj.supportedTrust) && obj.supportedTrust.every(t => typeof t === "string")) {
     card.supportedTrust = obj.supportedTrust as string[];
   }
+  if (Array.isArray(obj.tags) && obj.tags.every(t => typeof t === "string")) {
+    card.tags = obj.tags as string[];
+  }
+  if (typeof obj.version === "string") card.version = obj.version;
+  if (typeof obj.license === "string") card.license = obj.license;
+  if (typeof obj.sourceCode === "string") card.sourceCode = obj.sourceCode;
+  if (typeof obj.documentation === "string") card.documentation = obj.documentation;
   if (Array.isArray(obj.registrations)) {
     const regs = (obj.registrations as unknown[]).flatMap((r): Registration[] => {
       if (typeof r !== "object" || r === null) return [];
       const rec = r as Record<string, unknown>;
       if (typeof rec.agentRegistry !== "string") return [];
-      // Normalize missing or non-bigint agentId to null rather than leaving undefined
+      // Store as number (not BigInt) so the card stays JSON-serializable.
+      // Agent IDs are small integers that won't overflow Number.MAX_SAFE_INTEGER.
       const rawId = rec.agentId;
-      const agentId: bigint | null = rawId === null || rawId === undefined ? null : BigInt(rawId as bigint);
+      const agentId: bigint | null = rawId === null || rawId === undefined ? null : BigInt(rawId as number);
       return [{ agentId, agentRegistry: rec.agentRegistry }];
     });
     if (regs.length > 0) card.registrations = regs;

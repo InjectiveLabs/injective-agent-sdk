@@ -50,7 +50,7 @@ export class PinataStorage implements StorageProvider {
         pinataContent: data,
         pinataMetadata: { name: `agent-card-${slug}` },
         pinataOptions: { cidVersion: 1 },
-      }),
+      }, (_k, v) => typeof v === "bigint" ? Number(v) : v),
     });
   }
 
