@@ -53,6 +53,6 @@ To view recent entries: `inj-agent audit` (last 20) or `inj-agent audit --tail 5
 
 If you discover a security vulnerability, please report it responsibly:
 
-- Email: security@injective.com
+- Email: security@injectivelabs.org
 - Do not open a public GitHub issue for security vulnerabilities
 - We will acknowledge receipt within 48 hours
