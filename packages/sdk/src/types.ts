@@ -273,6 +273,7 @@ export interface GenerateCardOptions {
 
 export interface CardUpdates {
   name?: string;
+  type?: AgentType;
   description?: string;
   services?: ServiceEntry[];
   removeServices?: string[];

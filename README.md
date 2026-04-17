@@ -398,34 +398,76 @@ Get testnet INJ from the [Injective faucet](https://testnet.faucet.injective.net
 
 ## Agent Card Schema
 
-Every registered agent has a JSON card hosted on IPFS conforming to the ERC-8004 registration-v1 schema:
+Every registered agent has a JSON card hosted on IPFS conforming to the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) `registration-v1` schema. See [`docs/EIP-8004-REFERENCE.md`](docs/EIP-8004-REFERENCE.md) for the full specification and best practices.
+
+### Full Example
 
 ```json
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "FundingRateSniper",
-  "description": "Autonomous funding rate arb agent",
-  "services": [
-    { "type": "mcp", "url": "https://bot.acme.dev/mcp", "description": "MCP endpoint" },
-    { "type": "a2a", "url": "https://bot.acme.dev/a2a" }
-  ],
+  "description": "Autonomous funding rate arbitrage agent on Injective. Monitors perp/spot funding gaps and executes delta-neutral positions. Flat 0.1% fee on profits.",
   "image": "ipfs://QmXyz.../avatar.png",
+  "services": [
+    { "name": "MCP", "endpoint": "https://bot.acme.dev/mcp", "version": "2025-06-18" },
+    { "name": "A2A", "endpoint": "https://bot.acme.dev/.well-known/agent-card.json", "version": "0.3.0" },
+    { "name": "web", "endpoint": "https://bot.acme.dev" }
+  ],
   "x402Support": true,
-  "metadata": {
-    "chain": "injective",
-    "chainId": "1439",
-    "agentType": "trading",
-    "builderCode": "acme-corp",
-    "operatorAddress": "0x..."
-  }
+  "active": true,
+  "supportedTrust": ["reputation", "crypto-economic"],
+  "tags": ["trading", "arbitrage", "injective"],
+  "version": "1.2.0",
+  "license": "ISC",
+  "sourceCode": "https://github.com/acme/funding-rate-sniper",
+  "documentation": "https://docs.acme.dev/sniper"
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `services[].type` | `mcp` `a2a` `web` `oasf` `rest` `grpc` `webhook` `custom` | Protocol type |
-| `image` | string | Avatar URL or `""` |
-| `x402Support` | boolean | x402 payment protocol support |
+### Top-Level Fields
+
+| Field | Required | Type | Description |
+|-------|:--------:|------|-------------|
+| `type` | Yes | string | Must be `"https://eips.ethereum.org/EIPS/eip-8004#registration-v1"` |
+| `name` | Yes | string | Agent identifier, 1–100 chars |
+| `description` | Yes | string | What the agent does, how to use it, pricing |
+| `image` | Yes | string | Avatar URL (IPFS preferred) or `""` |
+| `services` | Yes | array | Protocol endpoints — see below |
+| `x402Support` | No | boolean | x402 payment protocol support |
+| `active` | No | boolean | Whether agent is currently active |
+| `supportedTrust` | No | string[] | `"reputation"` \| `"crypto-economic"` \| `"tee-attestation"` |
+| `tags` | No | string[] | Discovery tags (3–5 recommended) |
+| `version` | No | string | Semver version of the agent |
+| `license` | No | string | SPDX license (e.g. `"MIT"`, `"ISC"`) |
+| `sourceCode` | No | string | Source repository URL |
+| `documentation` | No | string | Documentation URL |
+| `registrations` | No | array | Cross-chain registration references |
+
+### Service Entry Fields
+
+| Field | Required | Notes |
+|-------|:--------:|-------|
+| `name` | Yes | Protocol name — see table below |
+| `endpoint` | Yes | Service URI (HTTPS strongly preferred) |
+| `version` | No | Protocol version |
+| `skills` | No | OASF only: skill definitions array |
+| `domains` | No | OASF only: domain declarations array |
+
+> The SDK accepts `type` and `url` as input aliases and normalizes them to `name`/`endpoint` in the generated card.
+
+### Service Types
+
+| `name` | Protocol | Best practice |
+|--------|----------|---------------|
+| `MCP` | Model Context Protocol | Set `version: "2025-06-18"`; serve `/.well-known/mcp.json` |
+| `A2A` | Agent-to-Agent | Use `.well-known/agent-card.json` path; `version: "0.3.0"` |
+| `OASF` | Open Agent Skill Framework | Must have non-empty `skills` or `domains` |
+| `web` | Website/dashboard | Use HTTPS |
+| `ENS` | ENS name | ENS name resolving to agent |
+| `DID` | Decentralized ID | DID document URI |
+| `email` | Email contact | `mailto:` URI |
+
+MCP and A2A endpoints are the highest-value services — agents without either are capped at 30 on the [8004scan](https://8004scan.io) service score.
 
 ## Network & Contracts
 

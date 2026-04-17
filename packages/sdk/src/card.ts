@@ -5,7 +5,7 @@ import { ValidationError } from "./errors.js";
 
 export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
   const card: AgentCard = {
-    type: opts.type,
+    type: AGENT_CARD_TYPE,
     agentType: opts.type,
     name: opts.name,
     services: opts.services ?? [],
@@ -47,6 +47,7 @@ export function generateAgentCard(opts: GenerateCardOptions): AgentCard {
 export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): AgentCard {
   const card: AgentCard = {
     ...existing,
+    type: AGENT_CARD_TYPE, // always normalize to spec URI, regardless of what the existing card stored
     services: existing.services ?? [],
     image: existing.image ?? "",
     x402Support: existing.x402Support ?? false,
@@ -64,6 +65,7 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
     updates.license !== undefined ||
     updates.sourceCode !== undefined ||
     updates.documentation !== undefined ||
+    updates.type !== undefined ||
     (updates.services?.length ?? 0) > 0 ||
     (updates.removeServices?.length ?? 0) > 0 ||
     updates.actions !== undefined;
@@ -79,6 +81,10 @@ export function mergeAgentCard(existing: AgentCard, updates: CardUpdates): Agent
   if (updates.license !== undefined) card.license = updates.license;
   if (updates.sourceCode !== undefined) card.sourceCode = updates.sourceCode;
   if (updates.documentation !== undefined) card.documentation = updates.documentation;
+  if (updates.type !== undefined) {
+    card.agentType = updates.type;
+    if (card.metadata) card.metadata = { ...card.metadata, agentType: updates.type };
+  }
 
   // Only bump updatedAt when something actually changed
   if (hasChanges) card.updatedAt = Math.floor(Date.now() / 1000);
@@ -170,7 +176,7 @@ export function validateFetchedCard(raw: unknown): AgentCard {
     ? obj.metadata as Record<string, unknown>
     : null;
   const card: AgentCard = {
-    type: typeof obj.type === "string" ? obj.type : "other",
+    type: typeof obj.type === "string" ? obj.type : AGENT_CARD_TYPE,
     name: obj.name,
     description: typeof obj.description === "string" ? obj.description : undefined,
     services: Array.isArray(obj.services)

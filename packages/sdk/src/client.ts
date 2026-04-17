@@ -135,7 +135,7 @@ export class AgentClient {
     if (opts.license) metadata.push({ metadataKey: "license", metadataValue: encodeStringMetadata(opts.license) });
     if (opts.sourceCode) metadata.push({ metadataKey: "sourceCode", metadataValue: encodeStringMetadata(opts.sourceCode) });
     if (opts.documentation) metadata.push({ metadataKey: "documentation", metadataValue: encodeStringMetadata(opts.documentation) });
-    if (opts.tags && opts.tags.length > 0) metadata.push({ metadataKey: "tags", metadataValue: encodeStringMetadata(opts.tags.join(",")) });
+    if (opts.tags && opts.tags.length > 0) metadata.push({ metadataKey: "tags", metadataValue: encodeStringMetadata(JSON.stringify(opts.tags)) });
 
     let cardUri: string;
     if (opts.uri) {
@@ -157,7 +157,7 @@ export class AgentClient {
     if (opts.dryRun) {
       const sim = await simulateOnly(publicClient, {
         ...baseParams, functionName: "register", args: [cardUri, metadata],
-        gasPrice: opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined, gas: 500_000n,
+        gasPrice: opts.gasPrice ? opts.gasPrice * BigInt(1e9) : undefined, gas: 1_500_000n,
       }, this.callbacks);
       return { agentId: sim.result as bigint, identityTuple: "", cardUri, txHashes: [], scanUrl: "", gasEstimate: sim.gasEstimate };
     }
@@ -174,7 +174,7 @@ export class AgentClient {
 
     try {
       const registerSim = await simulateOnly(publicClient, {
-        ...baseParams, functionName: "register", args: [cardUri, metadata], gasPrice, gas: 500_000n,
+        ...baseParams, functionName: "register", args: [cardUri, metadata], gasPrice, gas: 1_500_000n,
       }, this.callbacks);
       this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "register", args: registerAuditArgs,
         simulation: { passed: true, gasEstimate: String(registerSim.gasEstimate) }, durationMs: Date.now() - startMs });
@@ -182,7 +182,7 @@ export class AgentClient {
       // Use estimate + 20% buffer as the gas limit for broadcast.
       const registerGasLimit = registerSim.gasEstimate > 0n
         ? registerSim.gasEstimate * 12n / 10n
-        : 500_000n;
+        : 1_500_000n;
       const registerCost = registerGasLimit * gasPrice;
       this.callbacks.onProgress?.(
         `Broadcasting register (gas limit: ${registerGasLimit}, cost: ${registerCost} wei = ${Number(registerCost) / 1e18} INJ)...`
@@ -372,6 +372,7 @@ export class AgentClient {
 
         const mergedCard = mergeAgentCard(existingCard, {
           name: opts.name,
+          type: opts.type,
           description: opts.description,
           services: opts.services,
           removeServices: opts.removeServices,
@@ -425,7 +426,7 @@ export class AgentClient {
       plannedWrites.push({ functionName: "setMetadata", args: [agentId, "documentation", encodeStringMetadata(opts.documentation)], field: "documentation" });
     }
     if (opts.tags && opts.tags.length > 0) {
-      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "tags", encodeStringMetadata(opts.tags.join(","))], field: "tags" });
+      plannedWrites.push({ functionName: "setMetadata", args: [agentId, "tags", encodeStringMetadata(JSON.stringify(opts.tags))], field: "tags" });
     }
     const effectiveUri = opts.uri ?? newCardUri;
     if (effectiveUri) {

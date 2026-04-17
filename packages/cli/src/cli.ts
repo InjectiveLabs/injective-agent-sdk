@@ -105,7 +105,7 @@ program
   .requiredOption("--name <name>", "Agent name (1-100 characters)")
   .requiredOption("--type <type>", `Agent type (${AGENT_TYPES.join(", ")})`)
   .requiredOption("--builder-code <code>", "Builder code identifier")
-  .requiredOption("--wallet <address>", "Wallet address to link to this agent")
+  .option("--wallet <address>", "Wallet address to link (defaults to signer address)")
   .option("--uri <uri>", "Agent card URI (skips IPFS upload)")
   .option("--description <desc>", "Agent description (up to 500 characters)")
   .option("--gas-price <gwei>", "Gas price in gwei")
@@ -114,14 +114,18 @@ program
   .option("--service <json>", "Service as NAME:URL or JSON (repeatable, e.g. MCP:https://api.dev/mcp)", parseService, [])
   .option("--image <pathOrUrl>", "Agent image (local file path or URL)")
   .option("--x402", "Enable x402 payment support")
+  .option("--active", "Mark agent as active")
+  .option("--no-active", "Mark agent as inactive")
+  .option("--supported-trust <value>", "Declare a trust model (repeatable: reputation, crypto-economic, tee-attestation)", (v: string, prev: string[]) => [...prev, v], [] as string[])
   .action(async (opts) => {
     try {
       const client = await createClient(cliCallbacks, "cli");
+      const wallet = opts.wallet as `0x${string}` | undefined;
       const result = await client.register({
         name: opts.name,
         type: opts.type,
         builderCode: opts.builderCode,
-        wallet: opts.wallet as `0x${string}`,
+        wallet: wallet ?? client.address,
         uri: opts.uri,
         description: opts.description,
         gasPrice: opts.gasPrice ? parseBigInt(opts.gasPrice, "--gas-price") : undefined,
@@ -129,6 +133,7 @@ program
         services: opts.service.length > 0 ? opts.service : undefined,
         image: opts.image,
         x402: opts.x402 ?? false,
+        supportedTrust: (opts.supportedTrust as string[] ?? []).length > 0 ? opts.supportedTrust as string[] : undefined,
       });
       if (opts.json) {
         console.log(JSON.stringify(result, bigintReplacer, 2));
