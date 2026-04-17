@@ -6,9 +6,8 @@ docs/
 .DS_Store
 *.js.map
 
-# Local scratch scripts (only migrate-sgt-cards.ts is tracked)
-scripts/*
-!scripts/migrate-sgt-cards.ts
+# Local scratch scripts
+scripts/
 
 # Temp files
 _tmp_*
