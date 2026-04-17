@@ -5,3 +5,10 @@ docs/
 !.env.example
 .DS_Store
 *.js.map
+
+# Local scratch scripts (only migrate-sgt-cards.ts is tracked)
+scripts/*
+!scripts/migrate-sgt-cards.ts
+
+# Temp files
+_tmp_*
