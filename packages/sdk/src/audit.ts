@@ -149,8 +149,6 @@ export class AuditLogger {
           deadline: String(args[2]),
           // signature intentionally omitted
         };
-      case "deregister":
-        return { agentId: String(args[0]) };
       case "giveFeedback":
         return {
           agentId: String(args[0]),

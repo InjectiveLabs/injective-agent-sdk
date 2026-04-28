@@ -1,4 +1,4 @@
-import type { RegisterResult, DeregisterResult, StatusResult, UpdateResult } from "../types/index.js";
+import type { RegisterResult, StatusResult, UpdateResult } from "../types/index.js";
 
 export const bigintReplacer = (_: string, v: unknown): unknown =>
   typeof v === "bigint" ? v.toString() : v;
@@ -13,10 +13,6 @@ export function formatRegisterResult(result: RegisterResult): string {
     `  Tx hashes: ${result.txHashes.join(", ")}`,
     `  View: ${result.scanUrl}`,
   ].join("\n");
-}
-
-export function formatDeregisterResult(result: DeregisterResult): string {
-  return `Agent ${result.agentId} deregistered. Tx hash: ${result.txHash}`;
 }
 
 export function formatStatusResult(result: StatusResult): string {

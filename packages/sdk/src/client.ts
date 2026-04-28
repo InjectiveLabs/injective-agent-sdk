@@ -1,6 +1,6 @@
 import type {
   AgentClientConfig, NetworkConfig, RegisterOptions, RegisterResult,
-  UpdateOptions, UpdateResult, DeregisterResult, DeregisterOptions, StatusResult,
+  UpdateOptions, UpdateResult, StatusResult,
   AgentClientCallbacks, StorageProvider, AgentCard,
   GiveFeedbackOptions, GiveFeedbackResult, RevokeFeedbackOptions, RevokeFeedbackResult,
 } from "./types.js";
@@ -503,60 +503,6 @@ export class AgentClient {
       }
       const formatted = formatContractError(error);
       this.audit.log({ event: "tx:fail", ...this.auditBase, method: "update", args: updateAuditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
-      throw formatted;
-    }
-  }
-
-  async deregister(agentId: bigint, opts?: DeregisterOptions): Promise<DeregisterResult> {
-    const { publicClient, identityRegistry, account } = this.clients;
-    const gasPrice = opts?.gasPrice ? opts.gasPrice * BigInt(1e9) : await resolveGasPrice(publicClient);
-    const startMs = Date.now();
-    const deregAuditArgs = AuditLogger.sanitizeArgs("deregister", [agentId]);
-
-    const baseParams = {
-      address: this.config.identityRegistry,
-      abi: identityRegistry.abi as unknown[],
-      functionName: "deregister" as const,
-      args: [agentId] as readonly unknown[],
-      account,
-      gasPrice,
-    };
-
-    if (opts?.dryRun) {
-      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
-      return { agentId, txHash: `0x${"0".repeat(64)}` as `0x${string}`, gasEstimate: sim.gasEstimate };
-    }
-
-    try {
-      const sim = await simulateOnly(publicClient, baseParams, this.callbacks);
-      this.audit.log({ event: "tx:simulate", ...this.auditBase, method: "deregister", args: deregAuditArgs,
-        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) }, durationMs: Date.now() - startMs });
-
-      const deregNonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
-      const deregGasLimit = sim.gasEstimate > 0n ? sim.gasEstimate * 12n / 10n : 200_000n;
-      this.callbacks.onProgress?.("Broadcasting deregister...");
-      const hash = await writeContractDirect({
-        publicClient, account, chainId: this.config.chainId,
-        address: baseParams.address, abi: baseParams.abi as unknown[],
-        functionName: "deregister", args: [agentId],
-        nonce: deregNonce, gasPrice, gas: deregGasLimit,
-        rpcUrl: this.config.rpcUrl,
-      });
-      this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "deregister", args: deregAuditArgs,
-        simulation: { passed: true, gasEstimate: String(sim.gasEstimate) },
-        durationMs: Date.now() - startMs, result: { txHash: hash } });
-
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      this.audit.log({ event: "tx:confirm", ...this.auditBase, method: "deregister", args: deregAuditArgs, durationMs: Date.now() - startMs, result: { txHash: hash, gasUsed: String(receipt.gasUsed), blockNumber: String(receipt.blockNumber) } });
-
-      return { agentId, txHash: hash };
-    } catch (error) {
-      if (error instanceof SimulationError || error instanceof AgentSdkError) {
-        this.audit.log({ event: "tx:fail", ...this.auditBase, method: "deregister", args: deregAuditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
-        throw error;
-      }
-      const formatted = formatContractError(error);
-      this.audit.log({ event: "tx:fail", ...this.auditBase, method: "deregister", args: deregAuditArgs, durationMs: Date.now() - startMs, error: { code: formatted.name, message: formatted.message } });
       throw formatted;
     }
   }

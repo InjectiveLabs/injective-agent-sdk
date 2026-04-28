@@ -97,7 +97,6 @@ claude mcp add injective -- node /path/to/mcp-server/dist/mcp/server.js
 - [CLI Reference](#cli-reference)
   - [register](#register)
   - [update](#update)
-  - [deregister](#deregister)
   - [status](#status)
 - [Configuration](#configuration)
 - [Agent Card Schema](#agent-card-schema)
@@ -166,15 +165,7 @@ const result = await client.update(5n, {
 
 Services are merged by type (upsert). Use `removeServices: ['mcp']` to delete a service. The update fetches the existing card from IPFS, merges changes, re-uploads, and updates the on-chain token URI.
 
-#### `client.deregister(agentId, opts?)`
-
-```typescript
-const result = await client.deregister(5n, { gasPrice: 20n })
-
-// Returns: { agentId, txHash }
-```
-
-Burns the agent identity NFT. This is irreversible. The SDK does not prompt for confirmation — your application is responsible for confirmation UX.
+> **Note:** Agent burning/deregistration is not supported. The deployed `IdentityRegistry` v2 contract does not expose a burn function. To retire an agent, transfer the NFT to a burn address or clear its `agentURI`.
 
 #### `client.getStatus(agentId)`
 
@@ -371,14 +362,6 @@ inj-agent update <agentId> \
 
 Fetches the existing card, merges changes, re-uploads to IPFS, and updates the on-chain URI.
 
-### deregister
-
-```bash
-inj-agent deregister <agentId> [--force] [--json]
-```
-
-Burns the NFT permanently. Without `--force`, prompts for confirmation by name.
-
 ### status
 
 ```bash
@@ -520,7 +503,7 @@ packages/
   sdk/                          @injective/agent-sdk
     src/
       index.ts                  Public API exports
-      client.ts                 AgentClient (register, update, deregister, getStatus)
+      client.ts                 AgentClient (register, update, getStatus)
       read-client.ts            AgentReadClient (read-only, no private key)
       types.ts                  All public types & interfaces
       config.ts                 Network config (testnet/mainnet)

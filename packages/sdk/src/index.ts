@@ -89,7 +89,7 @@ export type {
   ActionSchema, ActionParameter, ActionPrerequisite, ActionTransport,
   RegisterOptions, RegisterResult,
   UpdateOptions, UpdateResult,
-  DeregisterOptions, DeregisterResult, StatusResult,
+  StatusResult,
   NetworkConfig, AgentClientConfig, ReadClientConfig,
   AgentClientCallbacks, StorageProvider,
   GenerateCardOptions, CardUpdates, SignWalletLinkParams,

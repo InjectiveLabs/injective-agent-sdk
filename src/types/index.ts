@@ -90,17 +90,6 @@ export interface UpdateResult {
   txHashes: `0x${string}`[];
 }
 
-export interface DeregisterOptions {
-  agentId: bigint;
-  force?: boolean;
-  json?: boolean;
-}
-
-export interface DeregisterResult {
-  agentId: bigint;
-  txHash: `0x${string}`;
-}
-
 export interface StatusOptions {
   agentId: bigint;
   json?: boolean;

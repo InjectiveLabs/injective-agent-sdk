@@ -5,14 +5,12 @@ import { AGENT_TYPES, LEGACY_SERVICE_NAME_MAP } from "./types/index.js";
 import type { ServiceEntry, ServiceType } from "./types/index.js";
 import { register } from "./commands/register.js";
 import { update } from "./commands/update.js";
-import { deregister } from "./commands/deregister.js";
 import { status } from "./commands/status.js";
 import { CliError } from "./lib/errors.js";
 import { assertPublicUrl } from "./lib/url.js";
 import {
   formatRegisterResult,
   formatUpdateResult,
-  formatDeregisterResult,
   formatStatusResult,
   bigintReplacer,
 } from "./lib/formatting.js";
@@ -177,34 +175,6 @@ program
         console.log(JSON.stringify(result, bigintReplacer, 2));
       } else {
         console.log(formatUpdateResult(result));
-      }
-    } catch (error) {
-      if (error instanceof CliError) {
-        console.error(error.message);
-      } else {
-        console.error(String(error));
-      }
-      process.exit(1);
-    }
-  });
-
-// deregister
-program
-  .command("deregister <agentId>")
-  .description("Deregister (burn) an agent identity NFT")
-  .option("--force", "Skip confirmation prompt")
-  .option("--json", "Output result as JSON")
-  .action(async (agentIdStr, opts) => {
-    try {
-      const result = await deregister({
-        agentId: parseBigInt(agentIdStr, "agent ID"),
-        force: opts.force,
-        json: opts.json,
-      });
-      if (opts.json) {
-        console.log(JSON.stringify(result, bigintReplacer, 2));
-      } else {
-        console.log(formatDeregisterResult(result));
       }
     } catch (error) {
       if (error instanceof CliError) {

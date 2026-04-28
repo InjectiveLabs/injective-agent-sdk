@@ -1,4 +1,4 @@
-import type { RegisterResult, DeregisterResult, StatusResult, UpdateResult, GiveFeedbackResult, RevokeFeedbackResult, FeedbackEntry } from "@injective/agent-sdk";
+import type { RegisterResult, StatusResult, UpdateResult, GiveFeedbackResult, RevokeFeedbackResult, FeedbackEntry } from "@injective/agent-sdk";
 
 export function formatRegisterResult(result: RegisterResult): string {
   if (result.txHashes.length === 0) return "";
@@ -10,10 +10,6 @@ export function formatRegisterResult(result: RegisterResult): string {
     `  Tx hashes: ${result.txHashes.join(", ")}`,
     `  View: ${result.scanUrl}`,
   ].join("\n");
-}
-
-export function formatDeregisterResult(result: DeregisterResult): string {
-  return `Agent ${result.agentId} deregistered. Tx hash: ${result.txHash}`;
 }
 
 export function formatStatusResult(result: StatusResult): string {

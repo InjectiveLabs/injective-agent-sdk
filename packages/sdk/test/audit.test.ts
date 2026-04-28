@@ -59,7 +59,7 @@ describe("AuditLogger", () => {
       chainId: 1439,
       signerAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       contract: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      method: "deregister",
+      method: "register",
       args: { agentId: "1" },
       durationMs: 50,
     });
@@ -243,11 +243,6 @@ describe("AuditLogger.sanitizeArgs", () => {
     expect(result).toEqual({ agentId: "1", wallet: "0xwallet", deadline: "1234" });
     expect(result).not.toHaveProperty("signature");
     expect(Object.values(result)).not.toContain("0xsignature_bytes_here");
-  });
-
-  it("sanitizes deregister args", () => {
-    const result = AuditLogger.sanitizeArgs("deregister", [99n]);
-    expect(result).toEqual({ agentId: "99" });
   });
 
   it("sanitizes setAgentURI args", () => {

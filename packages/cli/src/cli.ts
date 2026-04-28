@@ -9,7 +9,7 @@ import {
 import type { ServiceEntry, ServiceType } from "@injective/agent-sdk";
 import {
   formatRegisterResult, formatUpdateResult,
-  formatDeregisterResult, formatStatusResult,
+  formatStatusResult,
   formatGiveFeedbackResult, formatRevokeFeedbackResult, formatFeedbackEntries,
 } from "./formatting.js";
 import { createClient, createReadClient } from "./env.js";
@@ -199,43 +199,6 @@ program
           } catch (retryError) { handleError(retryError); }
         }
       }
-      handleError(error);
-    }
-  });
-
-// deregister
-program
-  .command("deregister <agentId>")
-  .description("Deregister (burn) an agent identity NFT")
-  .option("--force", "Skip confirmation prompt")
-  .option("--dry-run", "Simulate without broadcasting")
-  .option("--json", "Output result as JSON")
-  .action(async (agentIdStr, opts) => {
-    try {
-      const agentId = parseBigInt(agentIdStr, "agent ID");
-
-      if (!opts.force) {
-        const readClient = createReadClient();
-        const statusResult = await readClient.getStatus(agentId);
-        console.log(`You are about to deregister agent "${statusResult.name}" (ID: ${agentId}).`);
-        console.log("This will burn the identity NFT. This cannot be undone.");
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const answer = await rl.question(`Type the agent name to confirm: `);
-        rl.close();
-        if (answer !== statusResult.name) {
-          console.error("Confirmation failed. Agent name did not match.");
-          process.exit(1);
-        }
-      }
-
-      const client = await createClient(cliCallbacks, "cli");
-      const result = await client.deregister(agentId, { dryRun: opts.dryRun });
-      if (opts.json) {
-        console.log(JSON.stringify(result, bigintReplacer, 2));
-      } else {
-        console.log(formatDeregisterResult(result));
-      }
-    } catch (error) {
       handleError(error);
     }
   });

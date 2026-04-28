@@ -183,22 +183,11 @@ export interface UpdateOptions {
   documentation?: string;
 }
 
-export interface DeregisterOptions {
-  gasPrice?: bigint;
-  dryRun?: boolean;
-}
-
 export interface UpdateResult {
   agentId: bigint;
   updatedFields: string[];
   txHashes: `0x${string}`[];
   simulations?: Array<{ method: string; gasEstimate: bigint }>;
-}
-
-export interface DeregisterResult {
-  agentId: bigint;
-  txHash: `0x${string}`;
-  gasEstimate?: bigint;
 }
 
 export interface StatusResult {

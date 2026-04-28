@@ -26,8 +26,16 @@ export function formatContractError(error: unknown): string {
           return "Invalid wallet signature. Ensure the wallet private key matches the --wallet address.";
         case "SoulboundTransfer":
           return "Agent identity tokens cannot be transferred.";
-        default:
-          return `Transaction reverted: ${name ?? "unknown error"}`;
+        case "OwnableUnauthorizedAccount":
+          return `Caller ${args?.[0]} is not authorized. This function is restricted to the contract owner.`;
+        case "ERC721NonexistentToken":
+          return `Agent ${args?.[0]} does not exist (already burned, or wrong network).`;
+        case "ERC721IncorrectOwner":
+          return `Caller ${args?.[0]} is not the owner of agent ${args?.[1]} (actual owner: ${args?.[2]}).`;
+        default: {
+          const argsStr = args && args.length > 0 ? `(${args.map(String).join(", ")})` : "";
+          return `Transaction reverted: ${name ?? "unknown error"}${argsStr}`;
+        }
       }
     }
     return `Transaction failed: ${error.shortMessage ?? error.message}`;
