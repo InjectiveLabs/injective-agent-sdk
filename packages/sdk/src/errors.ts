@@ -48,6 +48,27 @@ export function extractRevertName(error: BaseError): string | undefined {
   return revert instanceof ContractFunctionRevertedError ? revert.data?.errorName : undefined;
 }
 
+/**
+ * Asserts a viem transaction receipt landed with `status: "success"`.
+ *
+ * Post-broadcast on-chain reverts produce a receipt with `status: "reverted"`
+ * and no revert reason — viem's `waitForTransactionReceipt` does NOT throw on
+ * reverted receipts, so without this check the SDK would silently return a
+ * "successful" txHash for a tx that actually failed.
+ */
+export function assertReceiptSuccess(
+  receipt: { status: "success" | "reverted" },
+  methodName: string,
+  hash: `0x${string}`,
+): void {
+  if (receipt.status !== "success") {
+    throw new ContractError(
+      `${methodName} tx ${hash} reverted on-chain after broadcast. ` +
+      `Inspect the transaction on a block explorer to see the revert reason.`,
+    );
+  }
+}
+
 export class PolicyViolationError extends AgentSdkError {
   readonly field: string;
   readonly value: unknown;
@@ -82,6 +103,13 @@ export function formatContractError(error: unknown): ContractError {
           return new ContractError(
             "Not authorized: only the original feedback provider can revoke this feedback.",
             name
+          );
+        case "ERC721NonexistentToken":
+          return new ContractError(`Agent ${args?.[0]} does not exist on the registry.`, name);
+        case "ERC721IncorrectOwner":
+          return new ContractError(
+            `Token ownership check failed for agent ${args?.[1]} — expected owner ${args?.[2]}, got ${args?.[0]}.`,
+            name,
           );
         default:
           return new ContractError(`Transaction reverted: ${name ?? "unknown error"}`, name);

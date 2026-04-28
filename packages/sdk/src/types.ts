@@ -154,6 +154,19 @@ export interface RegisterResult {
   identityTuple: string;
   cardUri: string;
   txHashes: `0x${string}`[];
+  /**
+   * setAgentURI tx hash from the two-phase URI re-upload, if it ran. Exposed
+   * separately so callers don't have to guess the position by index — the
+   * step is conditional on `card.registrations` and storage availability,
+   * so `txHashes[1]` could be either this hash OR `walletTxHash`.
+   */
+  setUriTxHash?: `0x${string}`;
+  /**
+   * setAgentWallet tx hash from the wallet-link step, if it ran. Exposed
+   * separately for the same reason as `setUriTxHash` — its position in
+   * `txHashes` is not stable.
+   */
+  walletTxHash?: `0x${string}`;
   scanUrl: string;
   gasEstimate?: bigint;
 }
@@ -187,6 +200,12 @@ export interface UpdateResult {
   agentId: bigint;
   updatedFields: string[];
   txHashes: `0x${string}`[];
+  /**
+   * setAgentWallet tx hash, if a wallet-link step ran. Exposed separately
+   * so callers don't have to identify it by position in `txHashes` (its
+   * index depends on which other fields were updated in the same call).
+   */
+  walletTxHash?: `0x${string}`;
   simulations?: Array<{ method: string; gasEstimate: bigint }>;
 }
 

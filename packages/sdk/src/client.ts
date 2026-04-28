@@ -10,7 +10,7 @@ import { resolveKey, signWalletLink, type ResolvedKey } from "./wallet.js";
 import { createClients, createReadOnlyClients, encodeStringMetadata, identityTuple, walletLinkDeadline, ReputationRegistryABI, writeContractDirect } from "./contracts.js";
 import { generateAgentCard, mergeAgentCard, fetchAgentCard, checkServiceReachability } from "./card.js";
 import { AgentReadClient } from "./read-client.js";
-import { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, formatContractError } from "./errors.js";
+import { AgentSdkError, ContractError, SimulationError, StorageError, ValidationError, assertReceiptSuccess, formatContractError } from "./errors.js";
 import { loadKeystore, decryptKey, DEFAULT_KEYSTORE_PATH } from "./keystore.js";
 import { simulateOnly } from "./simulate.js";
 import { AuditLogger } from "./audit.js";
@@ -164,6 +164,8 @@ export class AgentClient {
 
     let nonce = await publicClient.getTransactionCount({ address: this.key.address, blockTag: "pending" });
     const txHashes: `0x${string}`[] = [];
+    let walletTxHash: `0x${string}` | undefined;
+    let setUriTxHash: `0x${string}` | undefined;
     const gasPrice = opts.gasPrice ? opts.gasPrice * BigInt(1e9) : await resolveGasPrice(publicClient);
     const evmBalance = await publicClient.getBalance({ address: this.key.address });
     this.callbacks.onProgress?.(
@@ -200,6 +202,7 @@ export class AgentClient {
         durationMs: Date.now() - startMs, result: { txHash: registerHash } });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash: registerHash });
+      assertReceiptSuccess(receipt, "register", registerHash);
       this.audit.log({ event: "tx:confirm", ...this.auditBase, method: "register", args: registerAuditArgs, durationMs: Date.now() - startMs, result: { txHash: registerHash, gasUsed: String(receipt.gasUsed), blockNumber: String(receipt.blockNumber) } });
 
       const registeredLog = receipt.logs.find((log) =>
@@ -232,6 +235,7 @@ export class AgentClient {
               rpcUrl: this.config.rpcUrl,
             });
             txHashes.push(setUriHash);
+            setUriTxHash = setUriHash;
             this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "setAgentURI", args: setUriAuditArgs,
               durationMs: Date.now() - startMs, result: { txHash: setUriHash } });
             cardUri = updatedUri;
@@ -272,6 +276,7 @@ export class AgentClient {
           rpcUrl: this.config.rpcUrl,
         });
         txHashes.push(walletHash);
+        walletTxHash = walletHash;
         this.audit.log({ event: "tx:broadcast", ...this.auditBase, method: "setAgentWallet", args: walletAuditArgs,
           simulation: { passed: true, gasEstimate: String(walletSim.gasEstimate) },
           durationMs: Date.now() - startMs, result: { txHash: walletHash } });
@@ -279,10 +284,43 @@ export class AgentClient {
         this.callbacks.onWarning?.(`Skipping wallet linkage: wallet (${opts.wallet}) differs from signer (${this.key.address}).`);
       }
 
-      await Promise.all(txHashes.slice(1).map(hash => publicClient.waitForTransactionReceipt({ hash })));
+      // Wait for the optional setUri / wallet-link follow-up txs and verify
+      // they landed. setUri reverts are non-fatal (registration already
+      // succeeded; the agent just keeps its agentId:null card — same recovery
+      // hint as the broadcast-failure path above). Wallet-link reverts are
+      // fatal because the caller asked for the link.
+      const followupReceipts = await Promise.all(
+        txHashes.slice(1).map(hash => publicClient.waitForTransactionReceipt({ hash })),
+      );
+      followupReceipts.forEach((r, i) => {
+        if (r.status === "success") return;
+        const hash = txHashes[i + 1];
+        if (hash === setUriTxHash) {
+          this.callbacks.onWarning?.(
+            `Agent #${agentId} registered, but the two-phase setAgentURI tx ${hash} reverted on-chain. ` +
+            `The on-chain URI still points to the card with agentId:null. Run 'update ${agentId} --uri <new-cid>' to fix.`,
+          );
+          this.audit.log({ event: "tx:fail", ...this.auditBase, method: "setAgentURI",
+            args: {}, durationMs: Date.now() - startMs, error: { code: "ReceiptReverted", message: `tx ${hash} reverted` } });
+          return;
+        }
+        if (hash === walletTxHash) {
+          throw new ContractError(`setAgentWallet tx ${hash} reverted on-chain after broadcast.`);
+        }
+        // Defensive: any other follow-up hash we don't recognize.
+        throw new ContractError(`Follow-up tx ${hash} (after register) reverted on-chain.`);
+      });
 
       const tuple = identityTuple(this.config, agentId);
-      return { agentId, identityTuple: tuple, cardUri, txHashes, scanUrl: `https://8004scan.io/agent/${tuple}` };
+      return {
+        agentId,
+        identityTuple: tuple,
+        cardUri,
+        txHashes,
+        walletTxHash,
+        setUriTxHash,
+        scanUrl: `https://8004scan.io/agent/${tuple}`,
+      };
     } catch (error) {
       if (error instanceof SimulationError || error instanceof AgentSdkError) {
         this.audit.log({ event: "tx:fail", ...this.auditBase, method: "register", args: registerAuditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
@@ -493,9 +531,14 @@ export class AgentClient {
 
       const receipts = await Promise.all(txHashes.map(hash => publicClient.waitForTransactionReceipt({ hash })));
       for (let i = 0; i < receipts.length; i++) {
+        assertReceiptSuccess(receipts[i], `update.${plannedWrites[i].functionName}`, txHashes[i]);
         this.audit.log({ event: "tx:confirm", ...this.auditBase, method: plannedWrites[i].functionName, args: writeAuditArgs[i], durationMs: Date.now() - startMs, result: { txHash: txHashes[i], gasUsed: String(receipts[i].gasUsed), blockNumber: String(receipts[i].blockNumber) } });
       }
-      return { agentId, updatedFields, txHashes };
+      // Match by purpose ('field') rather than ABI function name so a future
+      // contract rename of setAgentWallet doesn't silently break this lookup.
+      const walletWriteIdx = plannedWrites.findIndex(w => w.field === "wallet");
+      const walletTxHash = walletWriteIdx >= 0 ? txHashes[walletWriteIdx] : undefined;
+      return { agentId, updatedFields, txHashes, walletTxHash };
     } catch (error) {
       if (error instanceof SimulationError || error instanceof AgentSdkError) {
         this.audit.log({ event: "tx:fail", ...this.auditBase, method: "update", args: updateAuditArgs, durationMs: Date.now() - startMs, error: { code: error.name, message: error.message } });
@@ -563,6 +606,7 @@ export class AgentClient {
         durationMs: Date.now() - startMs, result: { txHash: hash } });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      assertReceiptSuccess(receipt, "giveFeedback", hash);
 
       const registryAddr = this.config.reputationRegistry.toLowerCase();
       const feedbackLog = receipt.logs.find(
@@ -633,6 +677,7 @@ export class AgentClient {
         durationMs: Date.now() - startMs, result: { txHash: hash } });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      assertReceiptSuccess(receipt, "revokeFeedback", hash);
       this.audit.log({ event: "tx:confirm", ...this.reputationAuditBase, method: "revokeFeedback", args: auditArgs, durationMs: Date.now() - startMs, result: { txHash: hash, gasUsed: String(receipt.gasUsed), blockNumber: String(receipt.blockNumber) } });
 
       return { txHash: hash, agentId };
