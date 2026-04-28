@@ -2,7 +2,7 @@
 
 TypeScript SDK and CLI for managing on-chain AI agent identities on the [Injective](https://injective.com) blockchain.
 
-Register, update, query, and burn [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity NFTs — from code or from the terminal.
+Register, update, and query [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity NFTs — from code or from the terminal. Browse the live registry at **[agents.injective.com](https://agents.injective.com/)**.
 
 ## What is ERC-8004?
 
@@ -13,7 +13,7 @@ ERC-8004 is the standard for on-chain AI agent identity. Each agent gets a soulb
 - **Wallet linkage** — EIP-712 signed wallet-to-agent binding
 - **Identity tuple** — `eip155:{chainId}:{registry}:{agentId}` for cross-chain discovery
 
-Agents registered on Injective are visible on [8004scan](https://8004scan.io) and the [Injective Agent Hub](https://agents.injective.network).
+Agents registered on Injective are discoverable through the [Injective Agent Registry](https://agents.injective.com/) (browse, search, and view reputation/feedback) and on [8004scan](https://8004scan.io).
 
 ## Installation
 
