@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { extname, basename } from "node:path";
 import type { AgentCard } from "../types/index.js";
 import { CliError } from "./errors.js";
+import { bigintReplacer } from "./formatting.js";
 
 const PINATA_API_URL = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
 const PINATA_FILE_API_URL = "https://api.pinata.cloud/pinning/pinFileToIPFS";
@@ -67,7 +68,7 @@ export async function uploadAgentCard(card: AgentCard): Promise<string> {
         name: `agent-card-${card.name.toLowerCase().replace(/\s+/g, "-")}`,
       },
       pinataOptions: { cidVersion: 1 },
-    }),
+    }, bigintReplacer),
   });
 }
 
